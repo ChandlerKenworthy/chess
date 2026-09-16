@@ -51,6 +51,58 @@ const fn generate_secondary_straight_rays(square: usize) -> Bitboard {
     RANKS[rank]
 }
 
+const fn generate_primary_diagonal_rays(square: usize) -> Bitboard {
+    // Primary diagonal: bottom-left -> top-right (a1-h8 direction),
+    // i.e. squares where (rank - file) is constant.
+    let file = (square % 8) as i32;
+    let rank = (square / 8) as i32;
+    let mut bitboard: Bitboard = 0;
+
+    // Walk down-left to find the start of the diagonal
+    let mut r = rank;
+    let mut f = file;
+    while r > 0 && f > 0 {
+        r -= 1;
+        f -= 1;
+    }
+
+    // Walk up-right from there, setting every square on the diagonal
+    while r < 8 && f < 8 {
+        let sq = (r * 8 + f) as usize;
+        bitboard |= 1u64 << sq;
+        r += 1;
+        f += 1;
+    }
+
+    bitboard
+}
+
+const fn generate_secondary_diagonal_rays(square: usize) -> Bitboard {
+    // Secondary diagonal (anti-diagonal): top-left -> bottom-right (a8-h1 direction),
+    // i.e. squares where (rank + file) is constant.
+    let file = (square % 8) as i32;
+    let rank = (square / 8) as i32;
+    let mut bitboard: Bitboard = 0;
+
+    // Walk up-left to find the start of the anti-diagonal
+    let mut r = rank;
+    let mut f = file;
+    while r < 7 && f > 0 {
+        r += 1;
+        f -= 1;
+    }
+
+    // Walk down-right from there, setting every square on the anti-diagonal
+    while r >= 0 && f < 8 {
+        let sq = (r * 8 + f) as usize;
+        bitboard |= 1u64 << sq;
+        r -= 1;
+        f += 1;
+    }
+
+    bitboard
+}
+
 pub const PRIMARY_STRAIGHT_RAYS: [Bitboard; 64] = {
     let mut table: [Bitboard; 64] = [0; 64];
     let mut square = 0;
@@ -66,6 +118,26 @@ pub const SECONDARY_STRAIGHT_RAYS: [Bitboard; 64] = {
     let mut square = 0;
     while square < 64 {
         table[square] = generate_secondary_straight_rays(square);
+        square += 1;
+    }
+    table
+};
+
+pub const PRIMARY_DIAGONAL_RAYS: [Bitboard; 64] = {
+    let mut table: [Bitboard; 64] = [0; 64];
+    let mut square = 0;
+    while square < 64 {
+        table[square] = generate_primary_diagonal_rays(square);
+        square += 1;
+    }
+    table
+};
+
+pub const SECONDARY_DIAGONAL_RAYS: [Bitboard; 64] = {
+    let mut table: [Bitboard; 64] = [0; 64];
+    let mut square = 0;
+    while square < 64 {
+        table[square] = generate_secondary_diagonal_rays(square);
         square += 1;
     }
     table

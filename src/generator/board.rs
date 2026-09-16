@@ -22,19 +22,26 @@ impl Move {
         )
     }
 
-    pub fn from(self) -> Bitboard {
+    pub fn print(self) {
+        // Get the Square of from and to and print it
+        let from: Square = Square::new(self.from_index());
+        let to: Square = Square::new(self.to_index());
+        println!("{from}{to}"); 
+    }
+
+    pub fn from(&self) -> Bitboard {
         1 << ((self.0 >> Self::FROM_SHIFT) & Self::SQUARE_MASK)
     }
 
-    pub fn from_index(self) -> u32 {
+    pub fn from_index(&self) -> u32 {
         (self.0 >> Self::FROM_SHIFT) & Self::SQUARE_MASK
     }
     
-    pub fn to(self) -> Bitboard {
+    pub fn to(&self) -> Bitboard {
         1 << ((self.0 >> Self::TO_SHIFT) & Self::SQUARE_MASK)
     }
 
-    pub fn to_index(self) -> u32 {
+    pub fn to_index(&self) -> u32 {
         (self.0 >> Self::TO_SHIFT) & Self::SQUARE_MASK
     }
 
@@ -74,6 +81,12 @@ impl Board {
         Piece::ALL.into_iter().find(|&piece| (self[piece] & mask) != 0)
     }
 
+    pub fn clear(&mut self) {
+        for i in (0..12) {
+            self.bitboards[i] = 0u64;
+        }
+    }
+
     pub fn new() -> Self {
         Board { bitboards: STARTING_BOARD, to_move: Color::White }
     }
@@ -95,7 +108,7 @@ impl Board {
 
     pub fn print(&self) {
         for rank in (0..8).rev() {
-            let mut row = format!("{rank}");
+            let mut row = format!("{}", rank + 1);
             for file in 0..8 {
                 let square = rank * 8 + file;
                 let symbol = match self.piece_at(square) {
