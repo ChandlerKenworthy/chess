@@ -1,5 +1,5 @@
 use std::{debug_assert, ops::{Index, IndexMut}};
-use crate::generator::Bitboard;
+use crate::generator::{Bitboard, Color, bitboard::STARTING_BOARD};
 use super::piece::Piece;
 use std::fmt;
 
@@ -64,7 +64,8 @@ impl fmt::Display for Square {
 }
 
 pub struct Board {
-    pub bitboards: [Bitboard; 12]
+    pub bitboards: [Bitboard; 12],
+    pub to_move: Color
 }
 
 impl Board {
@@ -74,7 +75,22 @@ impl Board {
     }
 
     pub fn new() -> Self {
-        Board { bitboards: [0; 12] }
+        Board { bitboards: STARTING_BOARD, to_move: Color::White }
+    }
+
+    pub fn occupancy(&self, color: Color) -> Bitboard {
+        let start = match color {
+            Color::White => 0,
+            Color::Black => 6,
+        };
+
+        let mut occupancy = 0;
+
+        for i in start..start + 6 {
+            occupancy |= self.bitboards[i];
+        }
+
+        occupancy
     }
 
     pub fn print(&self) {
@@ -92,7 +108,7 @@ impl Board {
             }
             println!("{row}");
         }
-        println!("  A  B  C  D  E  F  G  H  ");
+        println!("  A  B  C  D  E  F  G  H  \n");
     }
 }
 

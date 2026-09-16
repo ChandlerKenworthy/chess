@@ -1,7 +1,21 @@
+use std::ops::Not;
+
 #[repr(u8)]
+#[derive(Copy, Clone, Debug)]
 pub enum Color {
     White = 0,
     Black = 1
+}
+
+impl Not for Color {
+    type Output = Color;
+
+    fn not(self) -> Self::Output {
+        match self {
+            Color::White => Color::Black,
+            Color::Black => Color::White,
+        }
+    }
 }
 
 #[repr(u8)]
