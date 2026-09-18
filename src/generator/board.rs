@@ -1,17 +1,33 @@
 use std::{debug_assert, ops::{Index, IndexMut}};
-use crate::generator::{Bitboard, Color, bitboard::STARTING_BOARD, piece::Castling};
+use crate::generator::{Bitboard, Color, PieceType, bitboard::STARTING_BOARD, piece::Castling};
 use super::piece::Piece;
 use std::fmt;
 
+#[derive(Copy, Clone)]
 pub struct Move(u32); // A tuple struct
+// Move word: [0.....5][6....11][12.....14][flags]
+//            from_idx  to_idx   piece_type
+// flags description:
+// 15: en-passant move? 1 : 0
+// 16: double pawn push? 1 : 0
+// 17: Was capturing move? 1 : 0
+// 18: Is castling Q.S White? 1 : 0
+// 19: Is castling K.S White? 1 : 0
+// 20: Is castling Q.S Black? 1 : 0
+// 22: Is castling K.S Black? 1 : 0
+// 22: promotion [Q]
+// 23: promotion [R]
+// 24: promotion [N]
+// 25: promotion [B]
 
 impl Move {
     const FROM_SHIFT: u32 = 0;
     const TO_SHIFT: u32 = 6;
-
+    const PIECE_TYPE_SHIFT: u32 = 12;
     const SQUARE_MASK: u32 = 0b111111;
+    const PIECE_TYPE_MASK: u32 = 0b111;
 
-    pub fn new(from: Bitboard, to: Bitboard) -> Self {
+    pub fn new(from: Bitboard, to: Bitboard, origin_piece: PieceType, is_capture: bool) -> Self {
         // If using u8 could do e.g. debug_assert!(from < 64) etc.
         let from: u32 = from.trailing_zeros();
         let to: u32 = to.trailing_zeros();
@@ -19,14 +35,43 @@ impl Move {
         Self(
             ((from) << Self::FROM_SHIFT) 
             | ((to) << Self::TO_SHIFT)
+            | ((origin_piece as u32) << Self::PIECE_TYPE_SHIFT)
+            | (is_capture as u32) << 17
         )
+    }
+
+    pub fn new_with_flags(from: Bitboard, to: Bitboard, origin_piece: PieceType, mut flags: u32) -> Self {
+        // Zero-out bits [0..14] in case something went wrong
+        flags &= !0x7FFF;
+
+        let from: u32 = from.trailing_zeros();
+        let to: u32 = to.trailing_zeros();
+
+        Self(
+            ((from) << Self::FROM_SHIFT) 
+            | ((to) << Self::TO_SHIFT)
+            | ((origin_piece as u32) << Self::PIECE_TYPE_SHIFT)
+            | flags
+        )
+    }
+
+    pub fn is_en_passant(&self) -> bool {
+        (self.0 & (1 << 15)) != 0
+    }
+
+    pub fn is_double_pawn_push(&self) -> bool {
+        (self.0 & (1 << 16)) != 0
+    }
+
+    pub fn is_capture(&self) -> bool {
+        (self.0 & (1 << 17)) != 0
     }
 
     pub fn print(self) {
         // Get the Square of from and to and print it
         let from: Square = Square::new(self.from_index());
         let to: Square = Square::new(self.to_index());
-        println!("{from}{to}"); 
+        print!("{from}{to}"); 
     }
 
     pub fn from(&self) -> Bitboard {
@@ -43,6 +88,11 @@ impl Move {
 
     pub fn to_index(&self) -> u32 {
         (self.0 >> Self::TO_SHIFT) & Self::SQUARE_MASK
+    }
+
+    pub fn piece(&self) -> PieceType {
+        let piece = (self.0 >> Self::PIECE_TYPE_SHIFT) & Self::PIECE_TYPE_MASK;
+        PieceType::try_from(piece).unwrap()
     }
 
 }
@@ -147,7 +197,7 @@ impl std::ops::Shl<Square> for u64 {
 }
 
 impl fmt::Display for Square {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let file = (b'a' + self.0 % 8) as char;
         let rank = (b'1' + self.0 / 8) as char;
 
@@ -155,6 +205,7 @@ impl fmt::Display for Square {
     }
 }
 
+#[derive(Copy, Clone)]
 pub struct Board {
     pub bitboards: [Bitboard; 12],
     // TODO: Compress into a short e.g. 32-bit word instead? 1 bit for color, 6 bits for en-passant square index, 4 for castling rights
@@ -164,6 +215,35 @@ pub struct Board {
 }
 
 impl Board {
+    pub fn make_move(&mut self, mv: Move) { // -> /* UNDO INFORMATION */
+
+        // capture current board state to be returned
+        // let curr_board = self.clone();
+
+        // move the target piece from the origin to the target square
+        let bb_idx = match self.to_move {
+            Color::White => mv.piece() as usize,
+            Color::Black => mv.piece() as usize + 6
+        };
+
+        self.bitboards[bb_idx] ^= mv.from() | mv.to(); // Clear the bit at from and set it at to
+
+        // Disable future en-passant, this is updated if the move was a double pawn push
+        self.en_passant = 0;
+
+
+        
+        // if (capture or e.p.) delete old piece from board
+        // if (castling) move rook
+        // if (double pawn push) set e.p. otherwise zero it out
+        // rook or king move? set castling flags to false (0)
+        // return that board state
+
+        // switch to_move over to the other player
+        self.to_move = !self.to_move;
+
+    }
+
     fn piece_at(&self, square: usize) -> Option<Piece> {
         let mask: Bitboard = 1 << square;
         Piece::ALL.into_iter().find(|&piece| (self[piece] & mask) != 0)

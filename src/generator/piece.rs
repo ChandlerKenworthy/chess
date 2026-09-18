@@ -27,6 +27,7 @@ pub enum Castling {
 }
 
 #[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PieceType {
     Pawn = 0,
     Knight = 1,
@@ -34,6 +35,22 @@ pub enum PieceType {
     Rook = 3,
     Queen = 4,
     King = 5
+}
+
+impl TryFrom<u32> for PieceType {
+    type Error = ();
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Pawn),
+            1 => Ok(Self::Knight),
+            2 => Ok(Self::Bishop),
+            3 => Ok(Self::Rook),
+            4 => Ok(Self::Queen),
+            5 => Ok(Self::King),
+            _ => Err(()),
+        }
+    }
 }
 
 #[derive(Clone, Copy)]

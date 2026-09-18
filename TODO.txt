@@ -1,0 +1,5 @@
+Flags when generating moves need to be set properly
+Implementation of make_move
+Implementation of undo_move
+Perft testing functions
+Proper perft unit tests

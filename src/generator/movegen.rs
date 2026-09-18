@@ -1,5 +1,9 @@
 use crate::generator::{Bitboard, Board, Color, Move, Piece, PieceType, bitboard::{
-    BLACK_KINGSIDE_ATTACKS_KING_OR_PAWN, BLACK_KINGSIDE_ATTACKS_KNIGHT, BLACK_KINGSIDE_FREE_SQUARES, BLACK_QUEENSIDE_ATTACKS_KING_OR_PAWN, BLACK_QUEENSIDE_ATTACKS_KNIGHT, BLACK_QUEENSIDE_FREE_SQUARES, PRIMARY_DIAGONAL_RAYS, PRIMARY_STRAIGHT_RAYS, RANK_3, RANK_6, REVERSE_SQUARE_BB, SECONDARY_DIAGONAL_RAYS, SECONDARY_STRAIGHT_RAYS, WHITE_KINGSIDE_ATTACKS_KING_OR_PAWN, WHITE_KINGSIDE_ATTACKS_KNIGHT, WHITE_KINGSIDE_FREE_SQUARES, WHITE_QUEENSIDE_ATTACKS_KING_OR_PAWN, WHITE_QUEENSIDE_ATTACKS_KNIGHT, WHITE_QUEENSIDE_FREE_SQUARES, east, north, print_bitboard, south, west
+    BLACK_KINGSIDE_ATTACKS_KING_OR_PAWN, BLACK_KINGSIDE_ATTACKS_KNIGHT, BLACK_KINGSIDE_FREE_SQUARES, 
+    BLACK_QUEENSIDE_ATTACKS_KING_OR_PAWN, BLACK_QUEENSIDE_ATTACKS_KNIGHT, BLACK_QUEENSIDE_FREE_SQUARES, 
+    PRIMARY_DIAGONAL_RAYS, PRIMARY_STRAIGHT_RAYS, RANK_3, RANK_6, REVERSE_SQUARE_BB, SECONDARY_DIAGONAL_RAYS, 
+    SECONDARY_STRAIGHT_RAYS, WHITE_KINGSIDE_ATTACKS_KING_OR_PAWN, WHITE_KINGSIDE_ATTACKS_KNIGHT, WHITE_KINGSIDE_FREE_SQUARES, 
+    WHITE_QUEENSIDE_ATTACKS_KING_OR_PAWN, WHITE_QUEENSIDE_ATTACKS_KNIGHT, WHITE_QUEENSIDE_FREE_SQUARES, east, north, south, west
 }, piece::Castling};
 use crate::generator::Square;
 
@@ -102,6 +106,7 @@ pub struct Generator {
     b: Board,
     color_offset_idx: i32,
     self_occ: Bitboard,
+    not_self_occ: Bitboard,
     oppn_occ: Bitboard,
     total_occ: Bitboard
 }
@@ -113,7 +118,7 @@ impl Generator {
             Color::Black => 6
         };
 
-        Generator { b: b, color_offset_idx: color_offset_idx, self_occ: 0u64, oppn_occ: 0u64, total_occ: 0u64 }
+        Generator { b: b, color_offset_idx: color_offset_idx, self_occ: 0u64, not_self_occ: !0u64, oppn_occ: 0u64, total_occ: 0u64 }
     }
 
     pub fn get_moves(&mut self) -> Vec<Move> {
@@ -127,6 +132,7 @@ impl Generator {
 
         // Calculate the current board occupancies
         self.self_occ = self.b.occupancy(self.b.to_move);
+        self.not_self_occ = !self.self_occ; // this operation is performed a lot so reduces # of instructions by doing it once here
         self.oppn_occ = self.b.occupancy(!self.b.to_move);
         self.total_occ = self.self_occ | self.oppn_occ;
 
@@ -141,6 +147,34 @@ impl Generator {
         self.get_pawn_moves(&mut move_list);
 
         move_list
+    }
+
+    #[inline(always)]
+    fn add_moves(&self, moves: &mut Vec<Move>, mut mvs: Bitboard, from: Bitboard, p: PieceType, are_capture: bool) {
+        while mvs != 0 {
+            let to: u64 = 1 << mvs.trailing_zeros();
+            moves.push(Move::new(
+                from,
+                to,
+                p,
+                are_capture
+            ));
+            mvs &= mvs - 1;
+        }
+    }
+
+    #[inline(always)]
+    fn add_moves_with_flags(&self, moves: &mut Vec<Move>, mut mvs: Bitboard, from: Bitboard, p: PieceType, flags: u32) {
+        while mvs != 0 {
+            let to: u64 = 1 << mvs.trailing_zeros();
+            moves.push(Move::new_with_flags(
+                from,
+                to,
+                p,
+                flags
+            ));
+            mvs &= mvs - 1;
+        }
     }
 
     // Use HQ for generating the sliding piece attacks
@@ -164,19 +198,13 @@ impl Generator {
                 self.total_occ, from, secondary_ray
             );
 
-            let mut mvs = (primary_attacks | secondary_attacks) & !self.self_occ;
-            while mvs != 0 {
-                let to: u64 = 1 << mvs.trailing_zeros();
+            let mvs = (primary_attacks | secondary_attacks) & !self.self_occ;
+            let attack_moves = mvs & self.oppn_occ;
+            let other_moves= mvs & !attack_moves;
 
-                // Create and store the move
-                moves.push(Move::new(
-                    from,
-                    to,
-                ));
+            self.add_moves(moves, attack_moves, from, PieceType::Rook, true);
+            self.add_moves(moves, other_moves, from, PieceType::Rook, false);
 
-                // Clear the least significant destination bit
-                mvs &= mvs - 1;
-            }
             rooks &= rooks - 1; // Remove the rook that was just processed
         }
     }
@@ -198,18 +226,14 @@ impl Generator {
                 self.total_occ, from, secondary_ray
             );
 
-            let mut mvs = (primary_attacks | secondary_attacks) & !self.self_occ;
-            while mvs != 0 {
-                let to: u64 = 1 << mvs.trailing_zeros();
+            let mvs = (primary_attacks | secondary_attacks) & !self.self_occ;
+            let attack_moves = mvs & self.oppn_occ;
+            let other_moves= mvs & !attack_moves;
 
-                // Create and store the move
-                moves.push(Move::new(
-                    from,
-                    to,
-                ));
-                mvs &= mvs - 1;
-            }
-            bishops &= bishops - 1; // Remove the rook that was just processed
+            self.add_moves(moves, attack_moves, from, PieceType::Bishop, true);
+            self.add_moves(moves, other_moves, from, PieceType::Bishop, false);
+
+            bishops &= bishops - 1;
         }
     }
 
@@ -238,20 +262,17 @@ impl Generator {
                 self.total_occ, from, secondary_straight_ray
             );
 
-            let mut mvs = (
+            let mvs = (
                 primary_straight_attacks 
                 | secondary_straight_attacks 
                 | primary_diagonal_attacks 
                 | secondary_diagonal_attacks) & !self.self_occ;
-            
-            while mvs != 0 {
-                let to: u64 = 1 << mvs.trailing_zeros();
-                moves.push(Move::new(
-                    from,
-                    to,
-                ));
-                mvs &= mvs - 1;
-            }
+            let attack_moves = mvs & self.oppn_occ;
+            let other_moves= mvs & !attack_moves;
+
+            self.add_moves(moves, attack_moves, from, PieceType::Queen, true);
+            self.add_moves(moves, other_moves, from, PieceType::Queen, false);
+
             queens &= queens - 1;
         }
     }
@@ -265,25 +286,13 @@ impl Generator {
             let from_idx = knights.trailing_zeros() as usize;
             let from: u64 = 1 << from_idx;
 
-            // Get all possible knight destinations
-            let mut mvs = KNIGHT_MOVES[from_idx];
+            // Get all possible knight destinations - but not onto our own pieces
+            let mvs = KNIGHT_MOVES[from_idx] & !self.self_occ;
+            let attack_moves = mvs & self.oppn_occ;
+            let other_moves= mvs & !attack_moves;
 
-            // Can't move onto one of our own pieces
-            mvs &= !self.self_occ;
-
-            // Iterate through every destination square
-            while mvs != 0 {
-                let to: u64 = 1 << mvs.trailing_zeros();
-
-                // Create and store the move
-                moves.push(Move::new(
-                    from,
-                    to,
-                ));
-
-                // Clear the least significant destination bit
-                mvs &= mvs - 1;
-            }
+            self.add_moves(moves, attack_moves, from, PieceType::Knight, true);
+            self.add_moves(moves, other_moves, from, PieceType::Knight, false);
 
             // Clear the knight we just processed
             knights &= knights - 1;
@@ -295,20 +304,12 @@ impl Generator {
         let from_idx = king.trailing_zeros() as usize;
         let from: u64 = 1 << from_idx;
 
-        let mut mvs = KING_MOVES[from_idx];
+        let mvs = KING_MOVES[from_idx] & !self.self_occ;
+        let attack_moves = mvs & self.oppn_occ;
+        let other_moves= mvs & !attack_moves;
 
-        // Cannot move onto any of our own pieces
-        mvs &= !self.self_occ;
-
-        // Nothing masked out yet e.g. king could be moving into check
-        while mvs != 0 {
-            let to: u64 = 1 << mvs.trailing_zeros();
-            moves.push(Move::new(
-                from,
-                to,
-            ));
-            mvs &= mvs - 1;
-        }
+        self.add_moves(moves, attack_moves, from, PieceType::King, true);
+        self.add_moves(moves, other_moves, from, PieceType::King, false);
     }
 
     fn get_castling_moves(&self, moves: &mut Vec<Move>) {
@@ -317,18 +318,18 @@ impl Generator {
         match self.b.to_move {
             Color::White => {
                 if self.can_castle_kingside(Color::White) {
-                    moves.push(Move::new(king, 1 << Square::g1));
+                    moves.push(Move::new_with_flags(king, 1 << Square::g1, PieceType::King, 0u32));
                 }
                 if self.can_castle_queenside(Color::White) {
-                    moves.push(Move::new(king, 1 << Square::c1));
+                    moves.push(Move::new_with_flags(king, 1 << Square::c1, PieceType::King, 0u32));
                 }
             }
             Color::Black => {
                 if self.can_castle_kingside(Color::Black) {
-                    moves.push(Move::new(king, 1 << Square::g8));
+                    moves.push(Move::new_with_flags(king, 1 << Square::g8, PieceType::King, 0u32));
                 }
                 if self.can_castle_queenside(Color::Black) {
-                    moves.push(Move::new(king, 1 << Square::c8));
+                    moves.push(Move::new_with_flags(king, 1 << Square::c8, PieceType::King, 0u32));
                 }
             }
         }
@@ -437,23 +438,26 @@ impl Generator {
             let from: Bitboard = 1 << from_idx;
 
             // Compute the 1-step moves forward ("primary" pawn move)
-            let mut mvs: Bitboard = match self.b.to_move {
+            let mvs: Bitboard = match self.b.to_move {
                 Color::White => north(from) & !self.total_occ,
                 Color::Black => south(from) & !self.total_occ
             };
+            self.add_moves(moves, mvs, from, PieceType::Pawn, false);
 
             // Now mvs has the 1-step forward we can compute double-step-forward moves
-            // in a clever single-pass 
-            mvs |= match self.b.to_move {
+            // in a clever single-pass
+            let mvs = match self.b.to_move {
                 Color::White => north(mvs & RANK_3) & !self.total_occ,
                 Color::Black => south(mvs & RANK_6) & !self.total_occ
             };
+            self.add_moves_with_flags(moves, mvs, from, PieceType::Pawn, 0u32);
 
             // Now scan for diagonal attacks
-            mvs |= match self.b.to_move {
+            let mvs = match self.b.to_move {
                 Color::White => (north(east(from)) | north(west(from))) & self.oppn_occ,
                 Color::Black => (south(east(from)) | south(west(from))) & self.oppn_occ
             };
+            self.add_moves_with_flags(moves, mvs, from, PieceType::Pawn, 0u32);
 
             if self.b.en_passant != 0 {
                 let is_valid_ep = match self.b.to_move {
@@ -463,17 +467,8 @@ impl Generator {
                 };
 
                 if is_valid_ep {
-                    mvs |= self.b.en_passant;
+                    moves.push(Move::new_with_flags(from, self.b.en_passant, PieceType::Pawn, 0u32));
                 }
-            }
-
-            while mvs != 0 {
-                let to: u64 = 1 << mvs.trailing_zeros();
-                moves.push(Move::new(
-                    from,
-                    to, 
-                ));
-                mvs &= mvs - 1;
             }
 
             pawns &= pawns - 1;

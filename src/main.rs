@@ -15,15 +15,48 @@ fn main() {
     let mut g: Generator = Generator::new(b);
     let moves: Vec<Move> = g.get_moves(); // generates and returns the vector of moves
     
-    for mv in moves {
-        mv.print();
-    }
+    moves[0].print();
+    b.make_move(moves[0]);
 
-
-    /* let s = Square::new(35);
-    println!("{s}");
-
-    print_bitboard(PRIMARY_DIAGONAL_RAYS[35]); */
+    println!();
+    b.print();
     
 
 }
+
+/* fn perft(board: &mut Board, depth: u32) -> u64 {
+    if depth == 0 {
+        return 1;
+    }
+
+    let mut g = Generator::new(board.clone()); // or pass &*board if Generator can borrow
+    let moves = g.get_moves();
+
+    if depth == 1 {
+        return moves.len() as u64;
+    }
+
+    let mut nodes = 0u64;
+    for mv in moves {
+        let undo = board.make_move(mv);   // make_move returns undo info
+        nodes += perft(board, depth - 1);
+        board.unmake_move(mv, undo);
+    }
+    nodes
+}
+
+fn perft_divide(board: &Board, depth: u32) {
+    let mut g = Generator::new(board.clone());
+    let moves = g.get_moves();
+
+    let mut total = 0u64;
+    for mv in moves {
+        let mut next = board.clone();
+        next.make_move(mv);
+        let count = perft(&next, depth - 1);
+        total += count;
+        mv.print();
+        print!(": {count}\n");
+    }
+    println!("Total: {}", total);
+} */
