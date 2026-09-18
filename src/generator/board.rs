@@ -1,5 +1,5 @@
 use std::{debug_assert, ops::{Index, IndexMut}};
-use crate::generator::{Bitboard, Color, bitboard::STARTING_BOARD};
+use crate::generator::{Bitboard, Color, bitboard::STARTING_BOARD, piece::Castling};
 use super::piece::Piece;
 use std::fmt;
 
@@ -72,7 +72,10 @@ impl fmt::Display for Square {
 
 pub struct Board {
     pub bitboards: [Bitboard; 12],
-    pub to_move: Color
+    // TODO: Compress into a short e.g. 32-bit word instead? 1 bit for color, 6 bits for en-passant square index, 4 for castling rights
+    pub to_move: Color,
+    pub en_passant: Bitboard, // the square a pawn may move to on the next move completing an en-passant capture (empty if not available)
+    pub castling_rights: u8, // [White QS][White KS][Black QS][Black KS][----]
 }
 
 impl Board {
@@ -81,14 +84,23 @@ impl Board {
         Piece::ALL.into_iter().find(|&piece| (self[piece] & mask) != 0)
     }
 
+    pub fn can_castle(&self, castling_flag: Castling) -> bool {
+        match castling_flag {
+            Castling::WhiteQueenside => (self.castling_rights & 0b10000000) != 0,
+            Castling::WhiteKingside  => (self.castling_rights & 0b01000000) != 0,
+            Castling::BlackQueenside => (self.castling_rights & 0b00100000) != 0,
+            Castling::BlackKingside  => (self.castling_rights & 0b00010000) != 0
+        }
+    }
+
     pub fn clear(&mut self) {
-        for i in (0..12) {
+        for i in 0..12 {
             self.bitboards[i] = 0u64;
         }
     }
 
     pub fn new() -> Self {
-        Board { bitboards: STARTING_BOARD, to_move: Color::White }
+        Board { bitboards: STARTING_BOARD, to_move: Color::White, en_passant: 0u64, castling_rights: 0u8 }
     }
 
     pub fn occupancy(&self, color: Color) -> Bitboard {

@@ -1,6 +1,4 @@
-use std::println;
-
-use crate::generator::{Bitboard, Board, Color, Move, Piece, PieceType, bitboard::{PRIMARY_STRAIGHT_RAYS, SECONDARY_STRAIGHT_RAYS, PRIMARY_DIAGONAL_RAYS, SECONDARY_DIAGONAL_RAYS}};
+use crate::generator::{Bitboard, Board, Color, Move, PieceType, bitboard::{PRIMARY_DIAGONAL_RAYS, PRIMARY_STRAIGHT_RAYS, SECONDARY_DIAGONAL_RAYS, SECONDARY_STRAIGHT_RAYS, east, north, south, west}};
 
 // Functions to generate lookup tables
 const fn generate_knight_moves(square: usize) -> Bitboard {
@@ -40,6 +38,13 @@ const fn generate_knight_moves(square: usize) -> Bitboard {
     moves
 }
 
+const fn generate_king_moves(square: usize) -> Bitboard {
+    let from: Bitboard = 1 << square;
+
+    north(from) | south(from) | east(from) | west(from) 
+    | north(east(from)) | north(west(from)) | south(east(from)) | south(west(from))
+}
+
 // Lookup tables
 pub const KNIGHT_MOVES: [Bitboard; 64] = {
     let mut table = [0; 64];
@@ -47,6 +52,18 @@ pub const KNIGHT_MOVES: [Bitboard; 64] = {
     let mut square = 0;
     while square < 64 {
         table[square] = generate_knight_moves(square);
+        square += 1;
+    }
+
+    table
+};
+
+pub const KING_MOVES: [Bitboard; 64] = {
+    let mut table = [0; 64];
+
+    let mut square = 0;
+    while square < 64 {
+        table[square] = generate_king_moves(square);
         square += 1;
     }
 
@@ -110,9 +127,14 @@ impl Generator {
         self.oppn_occ = self.b.occupancy(!self.b.to_move);
         self.total_occ = self.self_occ | self.oppn_occ;
 
+        // pawn moves single, double on first (if both clear), en-passant
+        // king moves do not incl. castling yet
+        self.get_king_moves(&mut move_list);
+        self.get_castling_moves(&mut move_list);
         self.get_knight_moves(&mut move_list);
         self.get_rook_moves(&mut move_list);
         self.get_bishop_moves(&mut move_list);
+        self.get_queen_moves(&mut move_list);
 
         move_list
     }
@@ -187,6 +209,48 @@ impl Generator {
         }
     }
 
+    fn get_queen_moves(&self, moves: &mut Vec<Move>) {
+        let mut queens = self.b.bitboards[(PieceType::Queen as usize) + self.color_offset_idx as usize];
+
+        while queens != 0 {
+            let from_idx = queens.trailing_zeros() as usize;
+            let from: Bitboard = 1u64 << from_idx;
+
+            let primary_diagonal_ray = PRIMARY_DIAGONAL_RAYS[from_idx];
+            let secondary_diagonal_ray = SECONDARY_DIAGONAL_RAYS[from_idx];
+            let primary_straight_ray = PRIMARY_STRAIGHT_RAYS[from_idx];
+            let secondary_straight_ray = SECONDARY_STRAIGHT_RAYS[from_idx];
+
+            let primary_diagonal_attacks = hyperbola_quintessence(
+                self.total_occ, from, primary_diagonal_ray
+            );
+            let secondary_diagonal_attacks = hyperbola_quintessence(
+                self.total_occ, from, secondary_diagonal_ray
+            );
+            let primary_straight_attacks = hyperbola_quintessence(
+                self.total_occ, from, primary_straight_ray
+            );
+            let secondary_straight_attacks = hyperbola_quintessence(
+                self.total_occ, from, secondary_straight_ray
+            );
+
+            let mut mvs = (
+                primary_straight_attacks 
+                | secondary_straight_attacks 
+                | primary_diagonal_attacks 
+                | secondary_diagonal_attacks) & !self.self_occ;
+            
+            while mvs != 0 {
+                let to: u64 = 1 << mvs.trailing_zeros();
+                moves.push(Move::new(
+                    from,
+                    to,
+                ));
+                mvs &= mvs - 1;
+            }
+            queens &= queens - 1;
+        }
+    }
 
     fn get_knight_moves(&self, moves: &mut Vec<Move>) {
         // for now just deal with the knights
@@ -221,7 +285,58 @@ impl Generator {
             knights &= knights - 1;
         }
     }
+
+    fn get_king_moves(&self, moves: &mut Vec<Move>) {
+        let king = self.b.bitboards[(PieceType::King as usize) + self.color_offset_idx as usize];
+        let from_idx = king.trailing_zeros() as usize;
+        let from: u64 = 1 << from_idx;
+
+        let mut mvs = KING_MOVES[from_idx];
+
+        // Cannot move onto any of our own pieces
+        mvs &= !self.self_occ;
+
+        // Nothing masked out yet e.g. king could be moving into check
+        while mvs != 0 {
+            let to: u64 = 1 << mvs.trailing_zeros();
+            moves.push(Move::new(
+                from,
+                to,
+            ));
+            mvs &= mvs - 1;
+        }
+    }
+
+    fn get_castling_moves(&self, moves: &mut Vec<Move>) {
+        let king = self.b.bitboards[(PieceType::King as usize) + self.color_offset_idx as usize];
+
+        // Add castling moves (no legality checks here yet)
+        let mut castling_mvs: Bitboard = match self.b.to_move {
+            Color::White => {
+                // Check validitity via board (i.e. has rook or king moved)
+                // then check here that mask is empty
+                // and then check no black pawns, knights, kings on king movement attack rays
+                // this can all be done via fast lookup
+
+                0
+            },
+            Color::Black => {
+                0
+            }
+        };
+
+        while castling_mvs != 0 {
+            let to: u64 = 1 << castling_mvs.trailing_zeros();
+            moves.push(Move::new(
+                king,
+                to,
+            ));
+            castling_mvs &= castling_mvs - 1;
+        }
+    }
+
 }
 
 
 
+ 

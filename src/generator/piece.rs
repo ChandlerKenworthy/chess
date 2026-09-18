@@ -19,6 +19,14 @@ impl Not for Color {
 }
 
 #[repr(u8)]
+pub enum Castling {
+    WhiteQueenside,
+    WhiteKingside,
+    BlackQueenside,
+    BlackKingside
+}
+
+#[repr(u8)]
 pub enum PieceType {
     Pawn = 0,
     Knight = 1,

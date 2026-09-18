@@ -17,6 +17,27 @@ pub fn print_bitboard(bb: Bitboard) {
     println!("   A  B  C  D  E  F  G  H  \n");
 }
 
+// Bit shift utilities with automatic wrapping avoidance
+#[inline(always)]
+pub const fn north(bb: Bitboard) -> Bitboard {
+    bb << 8
+}
+
+#[inline(always)]
+pub const fn south(bb: Bitboard) -> Bitboard {
+    bb >> 8
+}
+
+#[inline(always)]
+pub const fn east(bb: Bitboard) -> Bitboard {
+    (bb << 1) & !FILE_A
+}
+
+#[inline(always)]
+pub const fn west(bb: Bitboard) -> Bitboard {
+    (bb >> 1) & !FILE_H
+}
+
 // Rank and file definitions
 pub const RANK_1: Bitboard = 0x0000_0000_0000_00FF;
 pub const RANK_2: Bitboard = 0x0000_0000_0000_FF00;
