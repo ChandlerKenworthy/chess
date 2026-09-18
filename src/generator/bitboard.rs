@@ -164,6 +164,17 @@ pub const SECONDARY_DIAGONAL_RAYS: [Bitboard; 64] = {
     table
 };
 
+// For HQ lookup
+pub const REVERSE_SQUARE_BB: [Bitboard; 64] = {
+    let mut table = [0u64; 64];
+    let mut sq = 0;
+    while sq < 64 {
+        table[sq] = (1u64 << sq).reverse_bits();
+        sq += 1;
+    }
+    table
+};
+
 // Board starting position
 pub const STARTING_BOARD: [Bitboard; 12] = [
     RANK_2, // White pawns
@@ -179,3 +190,23 @@ pub const STARTING_BOARD: [Bitboard; 12] = [
     RANK_8 & FILE_D, // Black queen
     RANK_8 & FILE_E, // Black king
 ];
+
+// Masks for checking castling legality faster
+pub const WHITE_KINGSIDE_FREE_SQUARES: Bitboard = RANK_1 & (FILE_F | FILE_G);
+pub const WHITE_QUEENSIDE_FREE_SQUARES: Bitboard = RANK_1 & (FILE_B | FILE_C | FILE_D);
+pub const BLACK_KINGSIDE_FREE_SQUARES: Bitboard = RANK_8 & (FILE_F | FILE_G);
+pub const BLACK_QUEENSIDE_FREE_SQUARES: Bitboard = RANK_8 & (FILE_B | FILE_C | FILE_D);
+
+pub const WHITE_KINGSIDE_ATTACKS_KING_OR_PAWN: Bitboard = RANK_2 & (FILE_D | FILE_E | FILE_F | FILE_G | FILE_H);
+pub const BLACK_KINGSIDE_ATTACKS_KING_OR_PAWN: Bitboard = RANK_7 & (FILE_D | FILE_E | FILE_F | FILE_G | FILE_H);
+pub const WHITE_KINGSIDE_ATTACKS_KNIGHT: Bitboard = (RANK_2 & (FILE_C | FILE_D | FILE_E | FILE_G | FILE_H)) 
+                                                    | (RANK_3 & (FILE_D | FILE_E | FILE_F | FILE_G | FILE_H));
+pub const BLACK_KINGSIDE_ATTACKS_KNIGHT: Bitboard = (RANK_7 & (FILE_C | FILE_D | FILE_E | FILE_G | FILE_H)) 
+                                                    | (RANK_6 & (FILE_D | FILE_E | FILE_F | FILE_G | FILE_H));
+
+pub const WHITE_QUEENSIDE_ATTACKS_KING_OR_PAWN: Bitboard = RANK_2 & (FILE_B | FILE_C | FILE_D | FILE_E | FILE_F);
+pub const BLACK_QUEENSIDE_ATTACKS_KING_OR_PAWN: Bitboard = RANK_7 & (FILE_B | FILE_C | FILE_D | FILE_E | FILE_F);
+pub const WHITE_QUEENSIDE_ATTACKS_KNIGHT: Bitboard = (RANK_2 & (FILE_A | FILE_B | FILE_C | FILE_E | FILE_F | FILE_G)) 
+                                                    | (RANK_3 & (FILE_B | FILE_C | FILE_D | FILE_E | FILE_F));
+pub const BLACK_QUEENSIDE_ATTACKS_KNIGHT: Bitboard = (RANK_7 & (FILE_A | FILE_B | FILE_C | FILE_E | FILE_F | FILE_G)) 
+                                                    | (RANK_6 & (FILE_B | FILE_C | FILE_D | FILE_E | FILE_F));

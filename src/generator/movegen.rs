@@ -1,4 +1,7 @@
-use crate::generator::{Bitboard, Board, Color, Move, PieceType, bitboard::{PRIMARY_DIAGONAL_RAYS, PRIMARY_STRAIGHT_RAYS, SECONDARY_DIAGONAL_RAYS, SECONDARY_STRAIGHT_RAYS, east, north, south, west}};
+use crate::generator::{Bitboard, Board, Color, Move, Piece, PieceType, bitboard::{
+    BLACK_KINGSIDE_ATTACKS_KING_OR_PAWN, BLACK_KINGSIDE_ATTACKS_KNIGHT, BLACK_KINGSIDE_FREE_SQUARES, BLACK_QUEENSIDE_ATTACKS_KING_OR_PAWN, BLACK_QUEENSIDE_ATTACKS_KNIGHT, BLACK_QUEENSIDE_FREE_SQUARES, PRIMARY_DIAGONAL_RAYS, PRIMARY_STRAIGHT_RAYS, RANK_3, RANK_6, REVERSE_SQUARE_BB, SECONDARY_DIAGONAL_RAYS, SECONDARY_STRAIGHT_RAYS, WHITE_KINGSIDE_ATTACKS_KING_OR_PAWN, WHITE_KINGSIDE_ATTACKS_KNIGHT, WHITE_KINGSIDE_FREE_SQUARES, WHITE_QUEENSIDE_ATTACKS_KING_OR_PAWN, WHITE_QUEENSIDE_ATTACKS_KNIGHT, WHITE_QUEENSIDE_FREE_SQUARES, east, north, print_bitboard, south, west
+}, piece::Castling};
+use crate::generator::Square;
 
 // Functions to generate lookup tables
 const fn generate_knight_moves(square: usize) -> Bitboard {
@@ -71,6 +74,7 @@ pub const KING_MOVES: [Bitboard; 64] = {
 };
 
 // Utility functions for move generation
+#[inline(always)]
 fn hyperbola_quintessence(
     occupancy: Bitboard, 
     slider: Bitboard, 
@@ -86,10 +90,9 @@ fn hyperbola_quintessence(
 
     let occupied = occupancy & ray;
     let rev_occupied = occupied.reverse_bits();
-    let rev_slider = slider.reverse_bits();
 
     let forward = occupied.wrapping_sub(slider.wrapping_mul(2));
-    let backward = rev_occupied.wrapping_sub(rev_slider.wrapping_mul(2));
+    let backward = rev_occupied.wrapping_sub(REVERSE_SQUARE_BB[slider.trailing_zeros() as usize].wrapping_mul(2));
 
     (forward ^ backward.reverse_bits()) & ray
 }
@@ -135,6 +138,7 @@ impl Generator {
         self.get_rook_moves(&mut move_list);
         self.get_bishop_moves(&mut move_list);
         self.get_queen_moves(&mut move_list);
+        self.get_pawn_moves(&mut move_list);
 
         move_list
     }
@@ -310,30 +314,172 @@ impl Generator {
     fn get_castling_moves(&self, moves: &mut Vec<Move>) {
         let king = self.b.bitboards[(PieceType::King as usize) + self.color_offset_idx as usize];
 
-        // Add castling moves (no legality checks here yet)
-        let mut castling_mvs: Bitboard = match self.b.to_move {
+        match self.b.to_move {
             Color::White => {
-                // Check validitity via board (i.e. has rook or king moved)
-                // then check here that mask is empty
-                // and then check no black pawns, knights, kings on king movement attack rays
-                // this can all be done via fast lookup
-
-                0
-            },
-            Color::Black => {
-                0
+                if self.can_castle_kingside(Color::White) {
+                    moves.push(Move::new(king, 1 << Square::g1));
+                }
+                if self.can_castle_queenside(Color::White) {
+                    moves.push(Move::new(king, 1 << Square::c1));
+                }
             }
-        };
-
-        while castling_mvs != 0 {
-            let to: u64 = 1 << castling_mvs.trailing_zeros();
-            moves.push(Move::new(
-                king,
-                to,
-            ));
-            castling_mvs &= castling_mvs - 1;
+            Color::Black => {
+                if self.can_castle_kingside(Color::Black) {
+                    moves.push(Move::new(king, 1 << Square::g8));
+                }
+                if self.can_castle_queenside(Color::Black) {
+                    moves.push(Move::new(king, 1 << Square::c8));
+                }
+            }
         }
     }
+
+    fn can_castle_kingside(&self, color: Color) -> bool {
+        let (rights, free_squares, king_pawn_mask, knight_mask, enemy_king, enemy_pawn, enemy_knight) = match color {
+            Color::White => (
+                Castling::WhiteKingside,
+                WHITE_KINGSIDE_FREE_SQUARES,
+                WHITE_KINGSIDE_ATTACKS_KING_OR_PAWN,
+                WHITE_KINGSIDE_ATTACKS_KNIGHT,
+                Piece::BlackKing,
+                Piece::BlackPawn,
+                Piece::BlackKnight,
+            ),
+            Color::Black => (
+                Castling::BlackKingside,
+                BLACK_KINGSIDE_FREE_SQUARES,
+                BLACK_KINGSIDE_ATTACKS_KING_OR_PAWN,
+                BLACK_KINGSIDE_ATTACKS_KNIGHT,
+                Piece::WhiteKing,
+                Piece::WhitePawn,
+                Piece::WhiteKnight,
+            )
+        };
+
+        // Check the king or rook have not moved before
+        if !self.b.can_castle(rights) {
+            return false;
+        }
+        // Check all the squares along the rank that need to be free are free
+        if (self.total_occ & free_squares) != 0 {
+            return false;
+        }
+
+        let enemy_king_or_pawn = self.b.bitboards[enemy_king as usize] | self.b.bitboards[enemy_pawn as usize];
+        // An enemy king or pawns attack "rays" intercept the castling squares the king will move through/onto
+        if (king_pawn_mask & enemy_king_or_pawn) != 0 {
+            return false;
+        }
+
+        if (knight_mask & self.b.bitboards[enemy_knight as usize]) != 0 {
+            return false;
+        }
+
+        // TODO: Slider attack rays
+
+        true
+    }
+
+    fn can_castle_queenside(&self, color: Color) -> bool {
+        let (rights, free_squares, king_pawn_mask, knight_mask, enemy_king, enemy_pawn, enemy_knight) = match color {
+            Color::White => (
+                Castling::WhiteQueenside,
+                WHITE_QUEENSIDE_FREE_SQUARES,
+                WHITE_QUEENSIDE_ATTACKS_KING_OR_PAWN,
+                WHITE_QUEENSIDE_ATTACKS_KNIGHT,
+                Piece::BlackKing,
+                Piece::BlackPawn,
+                Piece::BlackKnight,
+            ),
+            Color::Black => (
+                Castling::BlackQueenside,
+                BLACK_QUEENSIDE_FREE_SQUARES,
+                BLACK_QUEENSIDE_ATTACKS_KING_OR_PAWN,
+                BLACK_QUEENSIDE_ATTACKS_KNIGHT,
+                Piece::WhiteKing,
+                Piece::WhitePawn,
+                Piece::WhiteKnight,
+            )
+        };
+
+        // Do basic checks to see if castling is permitted 
+        // (it is not checked if the move leaves the king in check after the move)
+
+        // Check the king or rook have not moved before
+        if !self.b.can_castle(rights) {
+            return false;
+        }
+        // Check all the squares along the rank that need to be free are free
+        if (self.total_occ & free_squares) != 0 {
+            return false;
+        }
+
+        let enemy_king_or_pawn = self.b.bitboards[enemy_king as usize] | self.b.bitboards[enemy_pawn as usize];
+        // An enemy king or pawns attack "rays" intercept the castling squares the king will move through/onto
+        if (king_pawn_mask & enemy_king_or_pawn) != 0 {
+            return false;
+        }
+
+        if (knight_mask & self.b.bitboards[enemy_knight as usize]) != 0 {
+            return false;
+        }
+
+        // TODO: Slider attack rays
+
+        true
+    }
+
+    fn get_pawn_moves(&self, moves: &mut Vec<Move>) {
+        let mut pawns = self.b.bitboards[(PieceType::Pawn as usize) + self.color_offset_idx as usize];
+
+        while pawns != 0 {
+            let from_idx = pawns.trailing_zeros() as usize;
+            let from: Bitboard = 1 << from_idx;
+
+            // Compute the 1-step moves forward ("primary" pawn move)
+            let mut mvs: Bitboard = match self.b.to_move {
+                Color::White => north(from) & !self.total_occ,
+                Color::Black => south(from) & !self.total_occ
+            };
+
+            // Now mvs has the 1-step forward we can compute double-step-forward moves
+            // in a clever single-pass 
+            mvs |= match self.b.to_move {
+                Color::White => north(mvs & RANK_3) & !self.total_occ,
+                Color::Black => south(mvs & RANK_6) & !self.total_occ
+            };
+
+            // Now scan for diagonal attacks
+            mvs |= match self.b.to_move {
+                Color::White => (north(east(from)) | north(west(from))) & self.oppn_occ,
+                Color::Black => (south(east(from)) | south(west(from))) & self.oppn_occ
+            };
+
+            if self.b.en_passant != 0 {
+                let is_valid_ep = match self.b.to_move {
+                    // No rank check needed of the origin pawn because self.b.en_passant is guaranteed to be on Rank 3/6
+                    Color::White => (south(east(self.b.en_passant) | west(self.b.en_passant)) & from) != 0,
+                    Color::Black => (north(east(self.b.en_passant) | west(self.b.en_passant)) & from) != 0,
+                };
+
+                if is_valid_ep {
+                    mvs |= self.b.en_passant;
+                }
+            }
+
+            while mvs != 0 {
+                let to: u64 = 1 << mvs.trailing_zeros();
+                moves.push(Move::new(
+                    from,
+                    to, 
+                ));
+                mvs &= mvs - 1;
+            }
+
+            pawns &= pawns - 1;
+        }
+    }
+
 
 }
 
