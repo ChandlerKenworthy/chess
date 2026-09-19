@@ -1,5 +1,5 @@
 use std::{debug_assert, ops::{Index, IndexMut}};
-use crate::generator::{Bitboard, Color, PieceType, bitboard::{STARTING_BOARD, north, south}, piece::Castling};
+use crate::generator::{Bitboard, Color, PieceType, bitboard::{FILE_A, FILE_D, FILE_F, FILE_H, RANK_1, RANK_8, STARTING_BOARD, north, south}, piece::Castling::{self, BlackKingside, BlackQueenside, WhiteKingside, WhiteQueenside}};
 use super::piece::Piece;
 use std::fmt;
 
@@ -288,20 +288,77 @@ impl Board {
                     Color::Black => self.bitboards[enemy_bb_idx] & !north(mv.to()),
                 }
             } else {
-
+                // Find the bb via a for loop and break it as soon as found so max 6 ops probably less
+                let color_offset_idx = match self.to_move {
+                    Color::White => 6, // deleting from black
+                    Color::Black => 0 // deleting from white
+                };
+                for bb_idx in 0..6 {
+                    if (self.bitboards[bb_idx + color_offset_idx] & mv.to()) != 0 {
+                        self.bitboards[bb_idx + color_offset_idx] ^= mv.to();
+                        break;
+                    }
+                }
             }
         }
 
-        
-        // if (capture or e.p.) delete old piece from board
-        // if (castling) move rook
-        // if (double pawn push) set e.p. otherwise zero it out
-        // PROMOTIONs (clear set bit of pawn board on RANK_1/8 thats already been done)
-        // rook or king move? set castling flags to false (0)
-        // return that board state
+        if mv.is_double_pawn_push() {
+            self.en_passant = match self.to_move {
+                Color::White => south(mv.to()),
+                Color::Black => north(mv.to())
+            };
+        }
+
+        if mv.is_promotion() {
+            // delete pawn from mv.to() (as already moved)
+            // insert type of piece to be promotoed to at mv.to()
+            if let Some(promotion_piece_type) = mv.promotes_to() {
+                let promotion_idx = promotion_piece_type as usize;
+
+                match self.to_move {
+                    Color::White => {
+                        self.bitboards[promotion_idx] |= mv.to();
+                        self.bitboards[Piece::WhitePawn as usize] ^= mv.to();
+
+                    },
+                    Color::Black => {
+                        self.bitboards[promotion_idx + 6] |= mv.to();
+                        self.bitboards[Piece::BlackPawn as usize] ^= mv.to();
+                    }
+                }
+            }
+        }
+
+        if mv.is_castling() {
+            // deal with where to put the rook, as king is already moved
+            if let Some(c) = mv.castling_is() {
+                match c {
+                    WhiteKingside  => self.bitboards[Piece::WhiteRook as usize] ^= RANK_1 & (FILE_H | FILE_F),
+                    WhiteQueenside => self.bitboards[Piece::WhiteRook as usize] ^= RANK_1 & (FILE_A | FILE_D),
+                    BlackKingside  => self.bitboards[Piece::BlackRook as usize] ^= RANK_8 & (FILE_H | FILE_F),
+                    BlackQueenside => self.bitboards[Piece::BlackRook as usize] ^= RANK_8 & (FILE_A | FILE_D),
+                }
+            }
+            
+            // also set the appropriate castling flags to fals
+            match self.to_move {
+                Color::White => self.castling_rights &= 0b00111111,
+                Color::Black => self.castling_rights &= 0b11001111,
+            }
+        }
+
+        // If a rook or king moved, castling is now no longer permitted
+        if mv.piece() == PieceType::Rook || mv.piece() == PieceType::King {
+            match self.to_move {
+                Color::White => self.castling_rights &= 0b00111111,
+                Color::Black => self.castling_rights &= 0b11001111,
+            }
+        }
 
         // switch to_move over to the other player
         self.to_move = !self.to_move;
+
+        // return the captued board state
 
     }
 

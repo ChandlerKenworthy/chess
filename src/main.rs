@@ -1,24 +1,40 @@
-use chess::generator::bitboard::{FILE_A, FILE_B, FILE_C, FILE_D, FILE_E, FILE_F, FILE_G, FILE_H, PRIMARY_DIAGONAL_RAYS, RANK_1, RANK_2, east, north, south};
+use chess::generator::bitboard::{FILE_A, FILE_B, FILE_C, FILE_D, FILE_E, FILE_F, FILE_G, FILE_H, PRIMARY_DIAGONAL_RAYS, RANK_1, RANK_2, RANK_4, RANK_8, east, north, south};
 use chess::generator::movegen::Generator;
 use chess::generator::{Board, Square, bitboard::print_bitboard};
-use chess::generator::{Bitboard, Move, Piece};
+use chess::generator::{Bitboard, Move, Piece, PieceType};
 
 fn main() {
 
     let mut b = Board::new();
     b.clear();
+    b.bitboards[Piece::BlackKing as usize] = RANK_8 & FILE_C;
     b.bitboards[Piece::WhiteKing as usize] = 1 << Square::e1;
     b.bitboards[Piece::WhiteRook as usize] = RANK_1 & (FILE_A | FILE_H);
     b.bitboards[Piece::BlackKnight as usize] = RANK_2 & FILE_H;
+    b.bitboards[Piece::WhitePawn as usize] = RANK_2 & FILE_D;
+    b.bitboards[Piece::BlackPawn as usize] = RANK_4 & FILE_C;
+    b.print();
+
+    // Make whites moves i.e. double pawn push
+    let dblmv = Move::new_with_flags(RANK_2 & FILE_D, RANK_4 & FILE_D, PieceType::Pawn, 0x10000);
+    println!("Move is double-push? {}", dblmv.is_double_pawn_push());
+    b.make_move(dblmv);
+
     b.print();
 
     let mut g: Generator = Generator::new(b);
     let moves: Vec<Move> = g.get_moves(); // generates and returns the vector of moves
     
-    moves[0].print();
-    b.make_move(moves[0]);
+    for mv in moves {
+        //mv.print();
+        //println!();
+        if mv.is_en_passant() {
+            println!("Making a en-passant move");
+            b.make_move(mv);
+            break;
+        }
+    }
 
-    println!();
     b.print();
     
 

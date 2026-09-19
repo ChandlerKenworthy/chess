@@ -314,18 +314,18 @@ impl Generator {
         match self.b.to_move {
             Color::White => {
                 if self.can_castle_kingside(Color::White) {
-                    moves.push(Move::new_with_flags(king, 1 << Square::g1, PieceType::King, 0x2000));
+                    moves.push(Move::new_with_flags(king, 1 << Square::g1, PieceType::King, 1 << 19));
                 }
                 if self.can_castle_queenside(Color::White) {
-                    moves.push(Move::new_with_flags(king, 1 << Square::c1, PieceType::King, 0x4000));
+                    moves.push(Move::new_with_flags(king, 1 << Square::c1, PieceType::King, 1 << 18));
                 }
             }
             Color::Black => {
                 if self.can_castle_kingside(Color::Black) {
-                    moves.push(Move::new_with_flags(king, 1 << Square::g8, PieceType::King, 0x800));
+                    moves.push(Move::new_with_flags(king, 1 << Square::g8, PieceType::King, 1 << 21));
                 }
                 if self.can_castle_queenside(Color::Black) {
-                    moves.push(Move::new_with_flags(king, 1 << Square::c8, PieceType::King, 0x1000));
+                    moves.push(Move::new_with_flags(king, 1 << Square::c8, PieceType::King, 1 << 20));
                 }
             }
         }
