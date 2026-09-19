@@ -1,5 +1,5 @@
 use std::{debug_assert, ops::{Index, IndexMut}};
-use crate::generator::{Bitboard, Color, PieceType, bitboard::STARTING_BOARD, piece::Castling};
+use crate::generator::{Bitboard, Color, PieceType, bitboard::{STARTING_BOARD, north, south}, piece::Castling};
 use super::piece::Piece;
 use std::fmt;
 
@@ -14,7 +14,7 @@ pub struct Move(u32); // A tuple struct
 // 18: Is castling Q.S White? 1 : 0
 // 19: Is castling K.S White? 1 : 0
 // 20: Is castling Q.S Black? 1 : 0
-// 22: Is castling K.S Black? 1 : 0
+// 21: Is castling K.S Black? 1 : 0
 // 22: promotion [Q]
 // 23: promotion [R]
 // 24: promotion [N]
@@ -26,6 +26,20 @@ impl Move {
     const PIECE_TYPE_SHIFT: u32 = 12;
     const SQUARE_MASK: u32 = 0b111111;
     const PIECE_TYPE_MASK: u32 = 0b111;
+
+    const EN_PASSANT_FLAG: u32 = 1 << 15;
+    const DOUBLE_PAWN_PUSH_FLAG: u32 = 1 << 16;
+    const IS_CAPTURE: u32 = 1 << 17;
+    //const IS_CASTLE_QS_WHITE: u32 = 1 << 18;
+    //const IS_CASTLE_KS_WHITE: u32 = 1 << 19;
+    //const IS_CASTLE_QS_BLACK: u32 = 1 << 20;
+    //const IS_CASTLE_KS_BLACK: u32 = 1 << 21;
+    const IS_CASTLE_ANY: u32 = (1 << 18) | (1 << 19) | (1 << 20) | (1 << 21);
+    //const IS_PROMOTION_QUEEN: u32 = 1 << 22;
+    //const IS_PROMOTION_ROOK: u32  = 1 << 23;
+    //const IS_PROMOTION_KNIGHT: u32 = 1 << 24;
+    //const IS_PROMOTION_BISHOP: u32 = 1 << 25;
+    const IS_PROMOTION_ANY: u32 = (1 << 22) | (1 << 23) | (1 << 24) | (1 << 25);
 
     pub fn new(from: Bitboard, to: Bitboard, origin_piece: PieceType, is_capture: bool) -> Self {
         // If using u8 could do e.g. debug_assert!(from < 64) etc.
@@ -55,16 +69,49 @@ impl Move {
         )
     }
 
-    pub fn is_en_passant(&self) -> bool {
-        (self.0 & (1 << 15)) != 0
-    }
-
     pub fn is_double_pawn_push(&self) -> bool {
-        (self.0 & (1 << 16)) != 0
+        (self.0 & Self::DOUBLE_PAWN_PUSH_FLAG) != 0
     }
 
     pub fn is_capture(&self) -> bool {
-        (self.0 & (1 << 17)) != 0
+        (self.0 & Self::IS_CAPTURE) != 0
+    }
+
+    pub fn is_en_passant(&self) -> bool {
+        (self.0 & Self::EN_PASSANT_FLAG) != 0
+    }
+
+    pub fn is_castling(&self) -> bool {
+        (self.0 & Self::IS_CASTLE_ANY) != 0
+    }
+
+    pub fn castling_is(&self) -> Option<Castling> {
+        let castling = (self.0 >> 18) & 0xF;
+        match castling {
+            0 => None,
+            1 => Some(Castling::WhiteQueenside),
+            2 => Some(Castling::WhiteKingside),
+            3 => Some(Castling::BlackQueenside),
+            4 => Some(Castling::BlackKingside),
+            _ => None
+        }
+    }    
+
+    pub fn is_promotion(&self) -> bool {
+        (self.0 & Self::IS_PROMOTION_ANY) != 0
+    }
+
+    pub fn promotes_to(&self) -> Option<PieceType> {
+        let promotion = (self.0 >> 22) & 0xF;
+
+        match promotion {
+            0 => None,
+            1 => Some(PieceType::Queen),
+            2 => Some(PieceType::Rook),
+            3 => Some(PieceType::Knight),
+            4 => Some(PieceType::Bishop),
+            _ => None,
+        }
     }
 
     pub fn print(self) {
@@ -231,11 +278,25 @@ impl Board {
         // Disable future en-passant, this is updated if the move was a double pawn push
         self.en_passant = 0;
 
+        // If the move was a capturing move (includes en-passant) update the captured
+        // pieces bitboard
+        if mv.is_capture() {
+            if mv.is_en_passant() { // Capturing an enemy pawn and we can easily work out where
+                let enemy_bb_idx = 0;
+                self.bitboards[enemy_bb_idx] = match self.to_move {
+                    Color::White => self.bitboards[enemy_bb_idx] & !south(mv.to()),
+                    Color::Black => self.bitboards[enemy_bb_idx] & !north(mv.to()),
+                }
+            } else {
+
+            }
+        }
 
         
         // if (capture or e.p.) delete old piece from board
         // if (castling) move rook
         // if (double pawn push) set e.p. otherwise zero it out
+        // PROMOTIONs (clear set bit of pawn board on RANK_1/8 thats already been done)
         // rook or king move? set castling flags to false (0)
         // return that board state
 

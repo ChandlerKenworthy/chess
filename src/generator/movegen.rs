@@ -1,9 +1,5 @@
 use crate::generator::{Bitboard, Board, Color, Move, Piece, PieceType, bitboard::{
-    BLACK_KINGSIDE_ATTACKS_KING_OR_PAWN, BLACK_KINGSIDE_ATTACKS_KNIGHT, BLACK_KINGSIDE_FREE_SQUARES, 
-    BLACK_QUEENSIDE_ATTACKS_KING_OR_PAWN, BLACK_QUEENSIDE_ATTACKS_KNIGHT, BLACK_QUEENSIDE_FREE_SQUARES, 
-    PRIMARY_DIAGONAL_RAYS, PRIMARY_STRAIGHT_RAYS, RANK_3, RANK_6, REVERSE_SQUARE_BB, SECONDARY_DIAGONAL_RAYS, 
-    SECONDARY_STRAIGHT_RAYS, WHITE_KINGSIDE_ATTACKS_KING_OR_PAWN, WHITE_KINGSIDE_ATTACKS_KNIGHT, WHITE_KINGSIDE_FREE_SQUARES, 
-    WHITE_QUEENSIDE_ATTACKS_KING_OR_PAWN, WHITE_QUEENSIDE_ATTACKS_KNIGHT, WHITE_QUEENSIDE_FREE_SQUARES, east, north, south, west
+    BLACK_KINGSIDE_ATTACKS_KING_OR_PAWN, BLACK_KINGSIDE_ATTACKS_KNIGHT, BLACK_KINGSIDE_FREE_SQUARES, BLACK_QUEENSIDE_ATTACKS_KING_OR_PAWN, BLACK_QUEENSIDE_ATTACKS_KNIGHT, BLACK_QUEENSIDE_FREE_SQUARES, PRIMARY_DIAGONAL_RAYS, PRIMARY_STRAIGHT_RAYS, RANK_1, RANK_3, RANK_6, RANK_8, REVERSE_SQUARE_BB, SECONDARY_DIAGONAL_RAYS, SECONDARY_STRAIGHT_RAYS, WHITE_KINGSIDE_ATTACKS_KING_OR_PAWN, WHITE_KINGSIDE_ATTACKS_KNIGHT, WHITE_KINGSIDE_FREE_SQUARES, WHITE_QUEENSIDE_ATTACKS_KING_OR_PAWN, WHITE_QUEENSIDE_ATTACKS_KNIGHT, WHITE_QUEENSIDE_FREE_SQUARES, east, north, south, west
 }, piece::Castling};
 use crate::generator::Square;
 
@@ -318,18 +314,18 @@ impl Generator {
         match self.b.to_move {
             Color::White => {
                 if self.can_castle_kingside(Color::White) {
-                    moves.push(Move::new_with_flags(king, 1 << Square::g1, PieceType::King, 0u32));
+                    moves.push(Move::new_with_flags(king, 1 << Square::g1, PieceType::King, 0x2000));
                 }
                 if self.can_castle_queenside(Color::White) {
-                    moves.push(Move::new_with_flags(king, 1 << Square::c1, PieceType::King, 0u32));
+                    moves.push(Move::new_with_flags(king, 1 << Square::c1, PieceType::King, 0x4000));
                 }
             }
             Color::Black => {
                 if self.can_castle_kingside(Color::Black) {
-                    moves.push(Move::new_with_flags(king, 1 << Square::g8, PieceType::King, 0u32));
+                    moves.push(Move::new_with_flags(king, 1 << Square::g8, PieceType::King, 0x800));
                 }
                 if self.can_castle_queenside(Color::Black) {
-                    moves.push(Move::new_with_flags(king, 1 << Square::c8, PieceType::King, 0u32));
+                    moves.push(Move::new_with_flags(king, 1 << Square::c8, PieceType::King, 0x1000));
                 }
             }
         }
@@ -442,7 +438,28 @@ impl Generator {
                 Color::White => north(from) & !self.total_occ,
                 Color::Black => south(from) & !self.total_occ
             };
-            self.add_moves(moves, mvs, from, PieceType::Pawn, false);
+            let mut promotion_mvs = match self.b.to_move {
+                Color::White => mvs & RANK_8,
+                Color::Black => mvs & RANK_1
+            };
+            self.add_moves(moves, mvs & !promotion_mvs, from, PieceType::Pawn, false);
+            while promotion_mvs != 0 {
+                let to = 1 << promotion_mvs.trailing_zeros();
+                moves.push( // promote to a queen
+                    Move::new_with_flags(from, to, PieceType::Pawn, 0x400)
+                );
+                moves.push( // promote to a rook
+                    Move::new_with_flags(from, to, PieceType::Pawn, 0x200)
+                );
+                moves.push( // promote to a knight
+                    Move::new_with_flags(from, to, PieceType::Pawn, 0x100)
+                );
+                moves.push( // promote to a bishop
+                    Move::new_with_flags(from, to, PieceType::Pawn, 0x80)
+                );
+                
+                promotion_mvs &= promotion_mvs - 1;
+            }
 
             // Now mvs has the 1-step forward we can compute double-step-forward moves
             // in a clever single-pass
@@ -450,15 +467,41 @@ impl Generator {
                 Color::White => north(mvs & RANK_3) & !self.total_occ,
                 Color::Black => south(mvs & RANK_6) & !self.total_occ
             };
-            self.add_moves_with_flags(moves, mvs, from, PieceType::Pawn, 0u32);
+            self.add_moves_with_flags(moves, mvs, from, PieceType::Pawn, 0x10000);
 
             // Now scan for diagonal attacks
             let mvs = match self.b.to_move {
                 Color::White => (north(east(from)) | north(west(from))) & self.oppn_occ,
                 Color::Black => (south(east(from)) | south(west(from))) & self.oppn_occ
             };
-            self.add_moves_with_flags(moves, mvs, from, PieceType::Pawn, 0u32);
+            // Flags are awkward here as could change e.g. all attacks, but could also
+            // be a promotion!
+            let mut attack_mv_promotion = match self.b.to_move {
+                Color::White => mvs & RANK_8,
+                Color::Black => mvs & RANK_1
+            };
+            let attack_mv = mvs & !attack_mv_promotion;
+            self.add_moves_with_flags(moves, attack_mv, from, PieceType::Pawn, 0x8000);
 
+            while attack_mv_promotion != 0 {
+                let to = 1 << attack_mv_promotion.trailing_zeros();
+                // Attack & promote to a queen
+                moves.push(
+                    Move::new_with_flags(from, to, PieceType::Pawn, 0x8400)
+                );
+                moves.push( // Attack & promote to a rook
+                    Move::new_with_flags(from, to, PieceType::Pawn, 0x8200)
+                );
+                moves.push( // Attack & promote to a knight
+                    Move::new_with_flags(from, to, PieceType::Pawn, 0x8100)
+                );
+                moves.push( // Attack & promote to a bishop
+                    Move::new_with_flags(from, to, PieceType::Pawn, 0x8080)
+                );
+                
+                attack_mv_promotion &= attack_mv_promotion - 1;
+            }
+    
             if self.b.en_passant != 0 {
                 let is_valid_ep = match self.b.to_move {
                     // No rank check needed of the origin pawn because self.b.en_passant is guaranteed to be on Rank 3/6
@@ -467,7 +510,13 @@ impl Generator {
                 };
 
                 if is_valid_ep {
-                    moves.push(Move::new_with_flags(from, self.b.en_passant, PieceType::Pawn, 0u32));
+                    moves.push(
+                        Move::new_with_flags(
+                            from, 
+                            self.b.en_passant, 
+                            PieceType::Pawn, 
+                            0x28000
+                        ));
                 }
             }
 
