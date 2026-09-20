@@ -1,5 +1,5 @@
 use crate::generator::{Bitboard, Board, Color, Move, Piece, PieceType, bitboard::{
-    BLACK_KINGSIDE_ATTACKS_KING_OR_PAWN, BLACK_KINGSIDE_ATTACKS_KNIGHT, BLACK_KINGSIDE_FREE_SQUARES, BLACK_QUEENSIDE_ATTACKS_KING_OR_PAWN, BLACK_QUEENSIDE_ATTACKS_KNIGHT, BLACK_QUEENSIDE_FREE_SQUARES, PRIMARY_DIAGONAL_RAYS, PRIMARY_STRAIGHT_RAYS, RANK_1, RANK_3, RANK_6, RANK_8, REVERSE_SQUARE_BB, SECONDARY_DIAGONAL_RAYS, SECONDARY_STRAIGHT_RAYS, WHITE_KINGSIDE_ATTACKS_KING_OR_PAWN, WHITE_KINGSIDE_ATTACKS_KNIGHT, WHITE_KINGSIDE_FREE_SQUARES, WHITE_QUEENSIDE_ATTACKS_KING_OR_PAWN, WHITE_QUEENSIDE_ATTACKS_KNIGHT, WHITE_QUEENSIDE_FREE_SQUARES, east, north, south, west
+    BLACK_KINGSIDE_ATTACKS_KING_OR_PAWN, BLACK_KINGSIDE_ATTACKS_KNIGHT, BLACK_KINGSIDE_FREE_SQUARES, BLACK_QUEENSIDE_ATTACKS_KING_OR_PAWN, BLACK_QUEENSIDE_ATTACKS_KNIGHT, BLACK_QUEENSIDE_FREE_SQUARES, PRIMARY_DIAGONAL_RAYS, PRIMARY_STRAIGHT_RAYS, RANK_1, RANK_3, RANK_6, RANK_8, REVERSE_SQUARE_BB, SECONDARY_DIAGONAL_RAYS, SECONDARY_STRAIGHT_RAYS, WHITE_KINGSIDE_ATTACKS_KING_OR_PAWN, WHITE_KINGSIDE_ATTACKS_KNIGHT, WHITE_KINGSIDE_FREE_SQUARES, WHITE_QUEENSIDE_ATTACKS_KING_OR_PAWN, WHITE_QUEENSIDE_ATTACKS_KNIGHT, WHITE_QUEENSIDE_FREE_SQUARES, east, north, print_bitboard, south, west
 }, piece::Castling};
 use crate::generator::Square;
 
@@ -119,11 +119,14 @@ impl Generator {
 
     fn is_in_check(&self, color: Color, mv: Move) -> bool {
         let color_offset_idx = match color {
-            Color::White => 0,
-            Color::Black => 6
+            Color::White => 6,
+            Color::Black => 0
         };
 
-        let king: Bitboard = self.b.bitboards[PieceType::King as usize + color_offset_idx];
+        let king: Bitboard = match color {
+            Color::White => self.b.bitboards[Piece::WhiteKing as usize],
+            Color::Black => self.b.bitboards[Piece::BlackKing as usize]
+        };
         let king_idx = king.trailing_zeros() as usize;
 
         // TODO: [Optimisation] This lookup could easily be done when generating the kings moves, saves pushing to a vector
@@ -143,9 +146,10 @@ impl Generator {
         // Calculate occupancy fast, as occupancy before this move, then clear origin via XOR and then set to via an OR
         let occupancy = (self.total_occ ^ mv.from()) | mv.to();
 
-        let enemy_queen = self.b.bitboards[PieceType::Queen as usize + color_offset_idx];
-        let enemy_straight_sliders = self.b.bitboards[PieceType::Rook as usize + color_offset_idx] | enemy_queen;
-        let enemy_diagonal_sliders = self.b.bitboards[PieceType::Bishop as usize + color_offset_idx] | enemy_queen;
+        let enemy_queen = self.b.bitboards[(PieceType::Queen as usize) + color_offset_idx];
+        let enemy_straight_sliders = self.b.bitboards[(PieceType::Rook as usize) + color_offset_idx] | enemy_queen;
+        let enemy_diagonal_sliders = self.b.bitboards[(PieceType::Bishop as usize) + color_offset_idx] | enemy_queen;
+
         let ray_attacks = hyperbola_quintessence(occupancy, king, PRIMARY_STRAIGHT_RAYS[king_idx]);
         if (ray_attacks & enemy_straight_sliders) != 0 {
             return true;
