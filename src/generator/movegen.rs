@@ -117,7 +117,59 @@ impl Generator {
         Generator { b: b, color_offset_idx: color_offset_idx, self_occ: 0u64, not_self_occ: !0u64, oppn_occ: 0u64, total_occ: 0u64 }
     }
 
-    pub fn get_moves(&mut self) -> Vec<Move> {
+    fn is_in_check(&self, color: Color, mv: Move) -> bool {
+        let color_offset_idx = match color {
+            Color::White => 0,
+            Color::Black => 6
+        };
+
+        let king: Bitboard = self.b.bitboards[PieceType::King as usize + color_offset_idx];
+        let king_idx = king.trailing_zeros() as usize;
+
+        // TODO: [Optimisation] This lookup could easily be done when generating the kings moves, saves pushing to a vector
+        // then iterating over again
+        if (KNIGHT_MOVES[king_idx] & self.b.bitboards[PieceType::Knight as usize + color_offset_idx]) != 0 {
+            return true;
+        }
+
+        let checking_enemy_pawns = match color {
+            Color::White => north(east(king) | west(king)),
+            Color::Black => south(east(king) | west(king))
+        };
+        if (checking_enemy_pawns & self.b.bitboards[PieceType::Pawn as usize + color_offset_idx]) != 0 {
+            return true;
+        }
+
+        // Calculate occupancy fast, as occupancy before this move, then clear origin via XOR and then set to via an OR
+        let occupancy = (self.total_occ ^ mv.from()) | mv.to();
+
+        let enemy_queen = self.b.bitboards[PieceType::Queen as usize + color_offset_idx];
+        let enemy_straight_sliders = self.b.bitboards[PieceType::Rook as usize + color_offset_idx] | enemy_queen;
+        let enemy_diagonal_sliders = self.b.bitboards[PieceType::Bishop as usize + color_offset_idx] | enemy_queen;
+        let ray_attacks = hyperbola_quintessence(occupancy, king, PRIMARY_STRAIGHT_RAYS[king_idx]);
+        if (ray_attacks & enemy_straight_sliders) != 0 {
+            return true;
+        }
+
+        let ray_attacks = hyperbola_quintessence(occupancy, king, SECONDARY_STRAIGHT_RAYS[king_idx]);
+        if (ray_attacks & enemy_straight_sliders) != 0 {
+            return true;
+        }
+
+        let ray_attacks = hyperbola_quintessence(occupancy, king, PRIMARY_DIAGONAL_RAYS[king_idx]);
+        if (ray_attacks & enemy_diagonal_sliders) != 0 {
+            return true;
+        }
+
+        let ray_attacks = hyperbola_quintessence(occupancy, king, SECONDARY_DIAGONAL_RAYS[king_idx]);
+        if (ray_attacks & enemy_diagonal_sliders) != 0 {
+            return true;
+        }
+
+        false
+    }
+
+    fn get_pseudo_legal_moves(&mut self) -> Vec<Move> {
         let mut move_list = Vec::new();
 
         // Find which colour is due to move for bb offsets
@@ -143,6 +195,20 @@ impl Generator {
         self.get_pawn_moves(&mut move_list);
 
         move_list
+    }
+
+    pub fn get_moves(&mut self) -> Vec<Move> {
+        let pseudo_legal = self.get_pseudo_legal_moves();
+
+        pseudo_legal
+        .into_iter()
+        .filter(|&mv| {
+            let undo = self.b.make_move(mv);
+            let legal = !self.is_in_check(!self.b.to_move, mv);
+            self.b.unmake_move(undo);
+            legal
+        })
+        .collect()
     }
 
     #[inline(always)]
@@ -194,7 +260,7 @@ impl Generator {
                 self.total_occ, from, secondary_ray
             );
 
-            let mvs = (primary_attacks | secondary_attacks) & !self.self_occ;
+            let mvs = (primary_attacks | secondary_attacks) & self.not_self_occ;
             let attack_moves = mvs & self.oppn_occ;
             let other_moves= mvs & !attack_moves;
 
@@ -222,7 +288,7 @@ impl Generator {
                 self.total_occ, from, secondary_ray
             );
 
-            let mvs = (primary_attacks | secondary_attacks) & !self.self_occ;
+            let mvs = (primary_attacks | secondary_attacks) & self.not_self_occ;
             let attack_moves = mvs & self.oppn_occ;
             let other_moves= mvs & !attack_moves;
 
@@ -262,7 +328,7 @@ impl Generator {
                 primary_straight_attacks 
                 | secondary_straight_attacks 
                 | primary_diagonal_attacks 
-                | secondary_diagonal_attacks) & !self.self_occ;
+                | secondary_diagonal_attacks) & self.not_self_occ;
             let attack_moves = mvs & self.oppn_occ;
             let other_moves= mvs & !attack_moves;
 
@@ -283,7 +349,7 @@ impl Generator {
             let from: u64 = 1 << from_idx;
 
             // Get all possible knight destinations - but not onto our own pieces
-            let mvs = KNIGHT_MOVES[from_idx] & !self.self_occ;
+            let mvs = KNIGHT_MOVES[from_idx] & self.not_self_occ;
             let attack_moves = mvs & self.oppn_occ;
             let other_moves= mvs & !attack_moves;
 
@@ -300,7 +366,7 @@ impl Generator {
         let from_idx = king.trailing_zeros() as usize;
         let from: u64 = 1 << from_idx;
 
-        let mvs = KING_MOVES[from_idx] & !self.self_occ;
+        let mvs = KING_MOVES[from_idx] & self.not_self_occ;
         let attack_moves = mvs & self.oppn_occ;
         let other_moves= mvs & !attack_moves;
 

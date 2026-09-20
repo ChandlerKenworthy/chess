@@ -262,10 +262,17 @@ pub struct Board {
 }
 
 impl Board {
-    pub fn make_move(&mut self, mv: Move) { // -> /* UNDO INFORMATION */
+    pub fn unmake_move(&mut self, undo: Board) {
+        self.bitboards = undo.bitboards;
+        self.to_move = undo.to_move;
+        self.en_passant = undo.en_passant;
+        self.castling_rights = undo.castling_rights;
+    }
+
+    pub fn make_move(&mut self, mv: Move) -> Board {
 
         // capture current board state to be returned
-        // let curr_board = self.clone();
+        let curr_board = self.clone();
 
         // move the target piece from the origin to the target square
         let bb_idx = match self.to_move {
@@ -359,7 +366,7 @@ impl Board {
         self.to_move = !self.to_move;
 
         // return the captued board state
-
+        curr_board
     }
 
     fn piece_at(&self, square: usize) -> Option<Piece> {
