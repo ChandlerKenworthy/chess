@@ -1,5 +1,5 @@
 use std::{debug_assert, ops::{Index, IndexMut}};
-use crate::generator::{Bitboard, Color, PieceType, bitboard::{FILE_A, FILE_D, FILE_F, FILE_H, RANK_1, RANK_8, STARTING_BOARD, north, south}, piece::Castling::{self, BlackKingside, BlackQueenside, WhiteKingside, WhiteQueenside}};
+use crate::generator::{Bitboard, Color, PieceType, bitboard::{BLACK_KS_ROOK, BLACK_QS_ROOK, FILE_A, FILE_D, FILE_F, FILE_H, RANK_1, RANK_8, STARTING_BOARD, WHITE_KS_ROOK, WHITE_QS_ROOK, north, south}, piece::Castling::{self, BlackKingside, BlackQueenside, WhiteKingside, WhiteQueenside}};
 use super::piece::Piece;
 use std::fmt;
 
@@ -302,6 +302,32 @@ impl Board {
                 };
                 for bb_idx in 0..6 {
                     if (self.bitboards[bb_idx + color_offset_idx] & mv.to()) != 0 {
+                        // If the captured piece is a rook then castling rights are removed
+                        // on the respective side
+                        if bb_idx == 3 { // capturing a rook
+                            // determine which 'side' the rook is on
+                            match self.to_move {
+                                Color::White => { // white is capturing a black rook
+                                    if (mv.to() & (RANK_8 & FILE_A)) != 0 {
+                                        // Black loses castling rights queenside
+                                        self.castling_rights &= 0b11010000;
+                                    } else if (mv.to() & (RANK_8 & FILE_H)) != 0 {
+                                        // Black loses castling rights kingside
+                                        self.castling_rights &= 0b11100000;
+                                    }
+                                }, 
+                                Color::Black => { // black is capturing a white rook
+                                    if (mv.to() & (RANK_1 & FILE_A)) != 0 {
+                                        // White loses castling rights queenside
+                                        self.castling_rights &= 0b01110000;
+                                    } else if (mv.to() & (RANK_1 & FILE_H)) != 0 {
+                                        // White loses castling rights kingside
+                                        self.castling_rights &= 0b10110000;
+                                    }
+                                }
+                            }
+                        }
+
                         self.bitboards[bb_idx + color_offset_idx] ^= mv.to();
                         break;
                     }
@@ -354,11 +380,31 @@ impl Board {
             }
         }
 
-        // If a rook or king moved, castling is now no longer permitted
-        if mv.piece() == PieceType::Rook || mv.piece() == PieceType::King {
+        // If a king moved, castling is now no longer permitted
+        if mv.piece() == PieceType::King {
             match self.to_move {
                 Color::White => self.castling_rights &= 0b00111111,
                 Color::Black => self.castling_rights &= 0b11001111,
+            }
+        }
+
+        if mv.piece() == PieceType::Rook {
+            // If a rook moved from its origin square update castling rights of the respective side
+            match self.to_move {
+                Color::White => {
+                    if (mv.to() & WHITE_QS_ROOK) != 0 {
+                        self.castling_rights &= 0b01110000;
+                    } else if (mv.to() & WHITE_KS_ROOK) != 0 {
+                        self.castling_rights &= 0b10110000;
+                    }
+                },
+                Color::Black => {
+                    if (mv.to() & BLACK_QS_ROOK) != 0 {
+                        self.castling_rights &= 0b11010000;
+                    } else if (mv.to() & BLACK_KS_ROOK) != 0 {
+                        self.castling_rights &= 0b11100000;
+                    }
+                }
             }
         }
 

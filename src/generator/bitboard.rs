@@ -192,6 +192,11 @@ pub const STARTING_BOARD: [Bitboard; 12] = [
 ];
 
 // Masks for checking castling legality faster
+pub const WHITE_QS_ROOK: Bitboard = RANK_1 & FILE_A;
+pub const WHITE_KS_ROOK: Bitboard = RANK_1 & FILE_H;
+pub const BLACK_QS_ROOK: Bitboard = RANK_8 & FILE_A;
+pub const BLACK_KS_ROOK: Bitboard = RANK_8 & FILE_H;
+
 pub const WHITE_KINGSIDE_FREE_SQUARES: Bitboard = RANK_1 & (FILE_F | FILE_G);
 pub const WHITE_QUEENSIDE_FREE_SQUARES: Bitboard = RANK_1 & (FILE_B | FILE_C | FILE_D);
 pub const BLACK_KINGSIDE_FREE_SQUARES: Bitboard = RANK_8 & (FILE_F | FILE_G);

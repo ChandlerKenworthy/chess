@@ -99,7 +99,7 @@ fn hyperbola_quintessence(
 
 // Functions to actually get the generated moves
 pub struct Generator {
-    b: Board,
+    pub b: Board,
     color_offset_idx: i32,
     self_occ: Bitboard,
     not_self_occ: Bitboard,
