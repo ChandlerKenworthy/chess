@@ -328,7 +328,7 @@ impl Board {
                             }
                         }
 
-                        self.bitboards[bb_idx + color_offset_idx] ^= mv.to();
+                        self.bitboards[bb_idx + color_offset_idx] &= !mv.to();
                         break;
                     }
                 }

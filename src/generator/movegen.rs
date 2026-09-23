@@ -551,7 +551,7 @@ impl Generator {
                 Color::Black => mvs & RANK_1
             };
             let attack_mv = mvs & !attack_mv_promotion;
-            self.add_moves_with_flags(moves, attack_mv, from, PieceType::Pawn, 0x8000);
+            self.add_moves(moves, attack_mv, from, PieceType::Pawn, true);
 
             while attack_mv_promotion != 0 {
                 let to = 1 << attack_mv_promotion.trailing_zeros();
