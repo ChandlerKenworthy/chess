@@ -439,6 +439,76 @@ impl Board {
         Board { bitboards: STARTING_BOARD, to_move: Color::White, en_passant: 0u64, castling_rights: 0b11110000 }
     }
 
+    pub fn from_fen(fen: &str) -> Option<Self> {
+        let mut parts = fen.split_whitespace();
+        let placement = parts.next()?;
+        let side = parts.next().unwrap_or("w");
+        let castling = parts.next().unwrap_or("-");
+        let ep = parts.next().unwrap_or("-");
+
+        let mut bbs: [Bitboard; 12] = [0; 12];
+        let mut rank: i32 = 7;
+        let mut file: i32 = 0;
+
+        for c in placement.chars() {
+            if c == '/' {
+                rank -= 1;
+                file = 0;
+                continue;
+            }
+            if let Some(n) = c.to_digit(10) {
+                file += n as i32;
+                continue;
+            }
+            let piece = match c {
+                'p' => Piece::BlackPawn,   'n' => Piece::BlackKnight,
+                'b' => Piece::BlackBishop, 'r' => Piece::BlackRook,
+                'q' => Piece::BlackQueen,  'k' => Piece::BlackKing,
+                'P' => Piece::WhitePawn,   'N' => Piece::WhiteKnight,
+                'B' => Piece::WhiteBishop, 'R' => Piece::WhiteRook,
+                'Q' => Piece::WhiteQueen,  'K' => Piece::WhiteKing,
+                _ => return None,
+            };
+            if !(0..8).contains(&rank) || !(0..8).contains(&file) {
+                return None;
+            }
+            let sq = (rank * 8 + file) as u32;
+            bbs[piece as usize] |= 1u64 << sq;
+            file += 1; // <-- the missing line
+        }
+
+        let to_move = match side {
+            "w" => Color::White,
+            "b" => Color::Black,
+            _ => return None,
+        };
+
+        // Adjust these bits to match however your engine encodes castling rights
+        let mut castling_rights = 0u8;
+        for c in castling.chars() {
+            match c {
+                'K' => castling_rights |= 0b0001,
+                'Q' => castling_rights |= 0b0010,
+                'k' => castling_rights |= 0b0100,
+                'q' => castling_rights |= 0b1000,
+                _ => {}
+            }
+        }
+
+        let en_passant = if ep == "-" {
+            0u64
+        } else {
+            let b = ep.as_bytes();
+            if b.len() != 2 { return None; }
+            let f = b[0].checked_sub(b'a')? as u32;
+            let r = b[1].checked_sub(b'1')? as u32;
+            if f > 7 || r > 7 { return None; }
+            1u64 << (r * 8 + f)
+        };
+
+        Some(Board { bitboards: bbs, to_move, en_passant, castling_rights })
+    }
+
     pub fn occupancy(&self, color: Color) -> Bitboard {
         let start = match color {
             Color::White => 0,
