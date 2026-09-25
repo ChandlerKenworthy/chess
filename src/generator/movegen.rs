@@ -1,5 +1,5 @@
 use crate::generator::{Bitboard, Board, Color, Move, Piece, PieceType, bitboard::{
-    BLACK_KINGSIDE_ATTACKS_KING_OR_PAWN, BLACK_KINGSIDE_ATTACKS_KNIGHT, BLACK_KINGSIDE_FREE_SQUARES, BLACK_KINGSIDE_SLIDER_ATTACKS, BLACK_QUEENSIDE_ATTACKS_KING_OR_PAWN, BLACK_QUEENSIDE_ATTACKS_KNIGHT, BLACK_QUEENSIDE_FREE_SQUARES, BLACK_QUEENSIDE_SLIDER_ATTACKS, PRIMARY_DIAGONAL_RAYS, PRIMARY_STRAIGHT_RAYS, RANK_1, RANK_3, RANK_6, RANK_8, REVERSE_SQUARE_BB, SECONDARY_DIAGONAL_RAYS, SECONDARY_STRAIGHT_RAYS, WHITE_KINGSIDE_ATTACKS_KING_OR_PAWN, WHITE_KINGSIDE_ATTACKS_KNIGHT, WHITE_KINGSIDE_FREE_SQUARES, WHITE_KINGSIDE_SLIDER_ATTACKS, WHITE_QUEENSIDE_ATTACKS_KING_OR_PAWN, WHITE_QUEENSIDE_ATTACKS_KNIGHT, WHITE_QUEENSIDE_FREE_SQUARES, WHITE_QUEENSIDE_SLIDER_ATTACKS, east, north, south, west
+    BLACK_KINGSIDE_ATTACKS_KING_OR_PAWN, BLACK_KINGSIDE_ATTACKS_KNIGHT, BLACK_KINGSIDE_FREE_SQUARES, BLACK_KINGSIDE_SLIDER_ATTACKS, BLACK_QUEENSIDE_ATTACKS_KING_OR_PAWN, BLACK_QUEENSIDE_ATTACKS_KNIGHT, BLACK_QUEENSIDE_FREE_SQUARES, BLACK_QUEENSIDE_SLIDER_ATTACKS, FILE_E, FILE_F, PRIMARY_DIAGONAL_RAYS, PRIMARY_STRAIGHT_RAYS, RANK_1, RANK_3, RANK_4, RANK_6, RANK_8, REVERSE_SQUARE_BB, SECONDARY_DIAGONAL_RAYS, SECONDARY_STRAIGHT_RAYS, WHITE_KINGSIDE_ATTACKS_KING_OR_PAWN, WHITE_KINGSIDE_ATTACKS_KNIGHT, WHITE_KINGSIDE_FREE_SQUARES, WHITE_KINGSIDE_SLIDER_ATTACKS, WHITE_QUEENSIDE_ATTACKS_KING_OR_PAWN, WHITE_QUEENSIDE_ATTACKS_KNIGHT, WHITE_QUEENSIDE_FREE_SQUARES, WHITE_QUEENSIDE_SLIDER_ATTACKS, east, north, print_bitboard, south, west
 }, piece::Castling};
 use crate::generator::Square;
 
@@ -143,9 +143,7 @@ impl Generator {
             return true;
         }
 
-        // Calculate occupancy fast, as occupancy before this move, then clear origin via XOR and then set to via an OR
-        let occupancy = (self.total_occ ^ mv.from()) | mv.to();
-
+        let occupancy = self.b.total_occupancy();
         let enemy_queen = self.b.bitboards[(PieceType::Queen as usize) + color_offset_idx];
         let enemy_straight_sliders = self.b.bitboards[(PieceType::Rook as usize) + color_offset_idx] | enemy_queen;
         let enemy_diagonal_sliders = self.b.bitboards[(PieceType::Bishop as usize) + color_offset_idx] | enemy_queen;
@@ -204,6 +202,7 @@ impl Generator {
     pub fn get_moves(&mut self) -> Vec<Move> {
         let pseudo_legal = self.get_pseudo_legal_moves();
 
+        // Filter out the moves that leave the king in check
         pseudo_legal
         .into_iter()
         .filter(|&mv| {
@@ -554,6 +553,8 @@ impl Generator {
                 Color::White => (north(east(from)) | north(west(from))) & self.oppn_occ,
                 Color::Black => (south(east(from)) | south(west(from))) & self.oppn_occ
             };
+            //print!("Diagonal pawn attacks!\n");
+            //print_bitboard(mvs);
             // Flags are awkward here as could change e.g. all attacks, but could also
             // be a promotion!
             let mut attack_mv_promotion = match self.b.to_move {
@@ -567,16 +568,17 @@ impl Generator {
                 let to = 1 << attack_mv_promotion.trailing_zeros();
                 // Attack & promote to a queen
                 moves.push(
-                    Move::new_with_flags(from, to, PieceType::Pawn, 0x8400)
+                    // 33792
+                    Move::new_with_flags(from, to, PieceType::Pawn, (1 << 17) | (1 << 22))
                 );
                 moves.push( // Attack & promote to a rook
-                    Move::new_with_flags(from, to, PieceType::Pawn, 0x8200)
+                    Move::new_with_flags(from, to, PieceType::Pawn, (1 << 17) | (1 << 23))
                 );
                 moves.push( // Attack & promote to a knight
-                    Move::new_with_flags(from, to, PieceType::Pawn, 0x8100)
+                    Move::new_with_flags(from, to, PieceType::Pawn, (1 << 17) | (1 << 24))
                 );
                 moves.push( // Attack & promote to a bishop
-                    Move::new_with_flags(from, to, PieceType::Pawn, 0x8080)
+                    Move::new_with_flags(from, to, PieceType::Pawn, (1 << 17) | (1 << 25))
                 );
                 
                 attack_mv_promotion &= attack_mv_promotion - 1;

@@ -109,13 +109,11 @@ impl Move {
 
     pub fn promotes_to(&self) -> Option<PieceType> {
         let promotion = (self.0 >> 22) & 0xF;
-
         match promotion {
-            0 => None,
             1 => Some(PieceType::Queen),
             2 => Some(PieceType::Rook),
-            3 => Some(PieceType::Knight),
-            4 => Some(PieceType::Bishop),
+            4 => Some(PieceType::Knight),
+            8 => Some(PieceType::Bishop),
             _ => None,
         }
     }
@@ -512,6 +510,14 @@ impl Board {
         };
 
         Some(Board { bitboards: bbs, to_move, en_passant, castling_rights })
+    }
+
+    pub fn total_occupancy(&self) -> Bitboard {
+        let mut occupancy = 0;
+        for bb in &self.bitboards {
+            occupancy |= *bb;
+        }
+        occupancy
     }
 
     pub fn occupancy(&self, color: Color) -> Bitboard {
