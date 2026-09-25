@@ -486,11 +486,11 @@ impl Board {
         // Adjust these bits to match however your engine encodes castling rights
         let mut castling_rights = 0u8;
         for c in castling.chars() {
-            match c {
-                'K' => castling_rights |= 0b0001,
-                'Q' => castling_rights |= 0b0010,
-                'k' => castling_rights |= 0b0100,
-                'q' => castling_rights |= 0b1000,
+            match c { // [White QS][White KS][Black QS][Black KS][----]
+                'K' => castling_rights |= 0b01000000,
+                'Q' => castling_rights |= 0b10000000,
+                'k' => castling_rights |= 0b00010000,
+                'q' => castling_rights |= 0b00100000,
                 _ => {}
             }
         }

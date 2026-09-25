@@ -1,5 +1,7 @@
+use std::println;
+
 use crate::generator::{Bitboard, Board, Color, Move, Piece, PieceType, bitboard::{
-    BLACK_KINGSIDE_ATTACKS_KING_OR_PAWN, BLACK_KINGSIDE_ATTACKS_KNIGHT, BLACK_KINGSIDE_FREE_SQUARES, BLACK_QUEENSIDE_ATTACKS_KING_OR_PAWN, BLACK_QUEENSIDE_ATTACKS_KNIGHT, BLACK_QUEENSIDE_FREE_SQUARES, PRIMARY_DIAGONAL_RAYS, PRIMARY_STRAIGHT_RAYS, RANK_1, RANK_3, RANK_6, RANK_8, REVERSE_SQUARE_BB, SECONDARY_DIAGONAL_RAYS, SECONDARY_STRAIGHT_RAYS, WHITE_KINGSIDE_ATTACKS_KING_OR_PAWN, WHITE_KINGSIDE_ATTACKS_KNIGHT, WHITE_KINGSIDE_FREE_SQUARES, WHITE_QUEENSIDE_ATTACKS_KING_OR_PAWN, WHITE_QUEENSIDE_ATTACKS_KNIGHT, WHITE_QUEENSIDE_FREE_SQUARES, east, north, print_bitboard, south, west
+    BLACK_KINGSIDE_ATTACKS_KING_OR_PAWN, BLACK_KINGSIDE_ATTACKS_KNIGHT, BLACK_KINGSIDE_FREE_SQUARES, BLACK_KINGSIDE_SLIDER_ATTACKS, BLACK_QUEENSIDE_ATTACKS_KING_OR_PAWN, BLACK_QUEENSIDE_ATTACKS_KNIGHT, BLACK_QUEENSIDE_FREE_SQUARES, BLACK_QUEENSIDE_SLIDER_ATTACKS, PRIMARY_DIAGONAL_RAYS, PRIMARY_STRAIGHT_RAYS, RANK_1, RANK_3, RANK_6, RANK_8, REVERSE_SQUARE_BB, SECONDARY_DIAGONAL_RAYS, SECONDARY_STRAIGHT_RAYS, WHITE_KINGSIDE_ATTACKS_KING_OR_PAWN, WHITE_KINGSIDE_ATTACKS_KNIGHT, WHITE_KINGSIDE_FREE_SQUARES, WHITE_KINGSIDE_SLIDER_ATTACKS, WHITE_QUEENSIDE_ATTACKS_KING_OR_PAWN, WHITE_QUEENSIDE_ATTACKS_KNIGHT, WHITE_QUEENSIDE_FREE_SQUARES, WHITE_QUEENSIDE_SLIDER_ATTACKS, east, north, print_bitboard, south, west
 }, piece::Castling};
 use crate::generator::Square;
 
@@ -401,99 +403,109 @@ impl Generator {
         }
     }
 
+    fn can_castle(&self, 
+        rights: Castling, 
+        free_squares: Bitboard, 
+        king_pawn_mask: Bitboard, 
+        knight_mask: Bitboard, 
+        mut slider_mask: Bitboard, 
+        offset: usize
+    ) -> bool {
+        // Check the king or rook have not moved before
+        if !self.b.can_castle(rights) {
+            return false;
+        }
+        // Check all the squares along the rank that need to be free are free
+        if (self.total_occ & free_squares) != 0 {
+            return false;
+        }
+
+        let enemy_king_or_pawn = self.b.bitboards[PieceType::King as usize + offset] | self.b.bitboards[PieceType::Pawn as usize + offset];
+        // An enemy king or pawns attack "rays" intercept the castling squares the king will move through/onto
+        if (king_pawn_mask & enemy_king_or_pawn) != 0 {
+            return false;
+        }
+
+        if (knight_mask & self.b.bitboards[PieceType::Knight as usize + offset]) != 0 {
+            return false;
+        }
+
+        // Iterate over the squares no attackers sliding piece should be able
+        // to attack i.e. HQ from the square must be empty
+        let enemy_queens = self.b.bitboards[PieceType::Queen as usize + offset];
+        let enemy_rooks = self.b.bitboards[PieceType::Rook as usize + offset];
+        let enemy_bishops = self.b.bitboards[PieceType::Bishop as usize + offset];
+
+        while slider_mask != 0 {
+            // this also prevents castling when in check as the king's square (e1/8)
+            // is included in the slider mask
+            let from_idx = slider_mask.trailing_zeros() as usize;
+            let from: Bitboard = 1 << from_idx;
+            
+            let primary_rays = hyperbola_quintessence(self.total_occ, from, PRIMARY_STRAIGHT_RAYS[from_idx]);
+            let secondary_rays = hyperbola_quintessence(self.total_occ, from, SECONDARY_STRAIGHT_RAYS[from_idx]);
+
+            if ((primary_rays | secondary_rays) & (enemy_queens | enemy_rooks)) != 0 {
+                return false;
+            }
+
+            let primary_rays = hyperbola_quintessence(self.total_occ, from, PRIMARY_DIAGONAL_RAYS[from_idx]);
+            let secondary_rays = hyperbola_quintessence(self.total_occ, from, SECONDARY_DIAGONAL_RAYS[from_idx]);
+
+            if ((primary_rays | secondary_rays) & (enemy_queens | enemy_bishops)) != 0 {
+                return false;
+            }
+
+            slider_mask &= slider_mask - 1;
+        }
+
+        true
+    }
+
     fn can_castle_kingside(&self, color: Color) -> bool {
-        let (rights, free_squares, king_pawn_mask, knight_mask, enemy_king, enemy_pawn, enemy_knight) = match color {
+        let (rights, free_squares, king_pawn_mask, knight_mask, slider_mask, offset) = match color {
             Color::White => (
                 Castling::WhiteKingside,
                 WHITE_KINGSIDE_FREE_SQUARES,
                 WHITE_KINGSIDE_ATTACKS_KING_OR_PAWN,
                 WHITE_KINGSIDE_ATTACKS_KNIGHT,
-                Piece::BlackKing,
-                Piece::BlackPawn,
-                Piece::BlackKnight,
+                WHITE_KINGSIDE_SLIDER_ATTACKS,
+                6,
             ),
             Color::Black => (
                 Castling::BlackKingside,
                 BLACK_KINGSIDE_FREE_SQUARES,
                 BLACK_KINGSIDE_ATTACKS_KING_OR_PAWN,
                 BLACK_KINGSIDE_ATTACKS_KNIGHT,
-                Piece::WhiteKing,
-                Piece::WhitePawn,
-                Piece::WhiteKnight,
+                BLACK_KINGSIDE_SLIDER_ATTACKS,
+                0,
             )
         };
 
-        // Check the king or rook have not moved before
-        if !self.b.can_castle(rights) {
-            return false;
-        }
-        // Check all the squares along the rank that need to be free are free
-        if (self.total_occ & free_squares) != 0 {
-            return false;
-        }
-
-        let enemy_king_or_pawn = self.b.bitboards[enemy_king as usize] | self.b.bitboards[enemy_pawn as usize];
-        // An enemy king or pawns attack "rays" intercept the castling squares the king will move through/onto
-        if (king_pawn_mask & enemy_king_or_pawn) != 0 {
-            return false;
-        }
-
-        if (knight_mask & self.b.bitboards[enemy_knight as usize]) != 0 {
-            return false;
-        }
-
-        // TODO: Slider attack rays
-
-        true
+        self.can_castle(rights, free_squares, king_pawn_mask, knight_mask, slider_mask, offset)
     }
 
     fn can_castle_queenside(&self, color: Color) -> bool {
-        let (rights, free_squares, king_pawn_mask, knight_mask, enemy_king, enemy_pawn, enemy_knight) = match color {
+        let (rights, free_squares, king_pawn_mask, knight_mask, slider_mask, offset) = match color {
             Color::White => (
                 Castling::WhiteQueenside,
                 WHITE_QUEENSIDE_FREE_SQUARES,
                 WHITE_QUEENSIDE_ATTACKS_KING_OR_PAWN,
                 WHITE_QUEENSIDE_ATTACKS_KNIGHT,
-                Piece::BlackKing,
-                Piece::BlackPawn,
-                Piece::BlackKnight,
+                WHITE_QUEENSIDE_SLIDER_ATTACKS,
+                6,
             ),
             Color::Black => (
                 Castling::BlackQueenside,
                 BLACK_QUEENSIDE_FREE_SQUARES,
                 BLACK_QUEENSIDE_ATTACKS_KING_OR_PAWN,
                 BLACK_QUEENSIDE_ATTACKS_KNIGHT,
-                Piece::WhiteKing,
-                Piece::WhitePawn,
-                Piece::WhiteKnight,
+                BLACK_QUEENSIDE_SLIDER_ATTACKS,
+                0,
             )
         };
 
-        // Do basic checks to see if castling is permitted 
-        // (it is not checked if the move leaves the king in check after the move)
-
-        // Check the king or rook have not moved before
-        if !self.b.can_castle(rights) {
-            return false;
-        }
-        // Check all the squares along the rank that need to be free are free
-        if (self.total_occ & free_squares) != 0 {
-            return false;
-        }
-
-        let enemy_king_or_pawn = self.b.bitboards[enemy_king as usize] | self.b.bitboards[enemy_pawn as usize];
-        // An enemy king or pawns attack "rays" intercept the castling squares the king will move through/onto
-        if (king_pawn_mask & enemy_king_or_pawn) != 0 {
-            return false;
-        }
-
-        if (knight_mask & self.b.bitboards[enemy_knight as usize]) != 0 {
-            return false;
-        }
-
-        // TODO: Slider attack rays
-
-        true
+        self.can_castle(rights, free_squares, king_pawn_mask, knight_mask, slider_mask, offset)
     }
 
     fn get_pawn_moves(&self, moves: &mut Vec<Move>) {

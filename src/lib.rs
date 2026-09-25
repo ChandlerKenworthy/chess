@@ -22,7 +22,7 @@ fn perft(generator: &mut Generator, depth: u32) -> u64 {
     nodes
 }
 
-fn perft_divide(generator: &mut Generator, depth: u32) {
+pub fn perft_divide(generator: &mut Generator, depth: u32) {
     if depth == 0 {
         return;
     }
