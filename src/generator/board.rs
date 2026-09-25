@@ -1,5 +1,5 @@
 use std::{debug_assert, ops::{Index, IndexMut}};
-use crate::generator::{Bitboard, Color, PieceType, bitboard::{BLACK_KS_ROOK, BLACK_QS_ROOK, FILE_A, FILE_D, FILE_F, FILE_H, RANK_1, RANK_8, STARTING_BOARD, WHITE_KS_ROOK, WHITE_QS_ROOK, north, south}, piece::Castling::{self, BlackKingside, BlackQueenside, WhiteKingside, WhiteQueenside}};
+use crate::generator::{Bitboard, Color, PieceType, bitboard::{BLACK_KS_ROOK, BLACK_QS_ROOK, FILE_A, FILE_D, FILE_F, FILE_H, RANK_1, RANK_8, STARTING_BOARD, WHITE_KS_ROOK, WHITE_QS_ROOK, north, print_bitboard, south}, piece::Castling::{self, BlackKingside, BlackQueenside, WhiteKingside, WhiteQueenside}};
 use super::piece::Piece;
 use std::fmt;
 
@@ -19,6 +19,13 @@ pub struct Move(u32); // A tuple struct
 // 23: promotion [R]
 // 24: promotion [N]
 // 25: promotion [B]
+
+impl fmt::Binary for Move {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Formats the underlying u32 using standard binary formatting
+        fmt::Binary::fmt(&self.0, f)
+    }
+}
 
 impl Move {
     const FROM_SHIFT: u32 = 0;
@@ -88,14 +95,13 @@ impl Move {
     pub fn castling_is(&self) -> Option<Castling> {
         let castling = (self.0 >> 18) & 0xF;
         match castling {
-            0 => None,
-            1 => Some(Castling::WhiteQueenside),
-            2 => Some(Castling::WhiteKingside),
-            3 => Some(Castling::BlackQueenside),
-            4 => Some(Castling::BlackKingside),
-            _ => None
+            1 => Some(Castling::WhiteQueenside), // Bit 18 (0b0001)
+            2 => Some(Castling::WhiteKingside),  // Bit 19 (0b0010)
+            4 => Some(Castling::BlackQueenside), // Bit 20 (0b0100)
+            8 => Some(Castling::BlackKingside),  // Bit 21 (0b1000)
+            _ => None,
         }
-    }    
+    }   
 
     pub fn is_promotion(&self) -> bool {
         (self.0 & Self::IS_PROMOTION_ANY) != 0
@@ -373,18 +379,18 @@ impl Board {
                 }
             }
             
-            // also set the appropriate castling flags to fals
+            // also set the appropriate castling flags to false
             match self.to_move {
-                Color::White => self.castling_rights &= 0b00111111,
-                Color::Black => self.castling_rights &= 0b11001111,
+                Color::White => self.castling_rights &= 0b00110000,
+                Color::Black => self.castling_rights &= 0b11000000,
             }
         }
 
         // If a king moved, castling is now no longer permitted
         if mv.piece() == PieceType::King {
             match self.to_move {
-                Color::White => self.castling_rights &= 0b00111111,
-                Color::Black => self.castling_rights &= 0b11001111,
+                Color::White => self.castling_rights &= 0b00110000,
+                Color::Black => self.castling_rights &= 0b11000000,
             }
         }
 

@@ -18,6 +18,7 @@ impl Not for Color {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Castling {
     WhiteQueenside,
