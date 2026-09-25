@@ -1,5 +1,5 @@
 use std::{debug_assert, ops::{Index, IndexMut}};
-use crate::generator::{Bitboard, Color, PieceType, bitboard::{BLACK_KS_ROOK, BLACK_QS_ROOK, FILE_A, FILE_D, FILE_F, FILE_H, KINGSIDE_CASTLE_ROOK_XOR_DEST, QUEENSIDE_CASTLE_ROOK_XOR_DEST, RANK_1, RANK_8, STARTING_BOARD, WHITE_KS_ROOK, WHITE_QS_ROOK, north, south}, piece::Castling::{self, BlackKingside, BlackQueenside, WhiteKingside, WhiteQueenside}};
+use crate::generator::{Bitboard, Color, PieceType, bitboard::{BLACK_KS, BLACK_KS_ROOK, BLACK_QS, BLACK_QS_ROOK, CASTLING_RIGHTS_MASK, FILE_A, FILE_D, FILE_F, FILE_H, KINGSIDE_CASTLE_ROOK_XOR_DEST, QUEENSIDE_CASTLE_ROOK_XOR_DEST, RANK_1, RANK_8, STARTING_BOARD, WHITE_KS, WHITE_KS_ROOK, WHITE_QS, WHITE_QS_ROOK, north, south}, piece::Castling::{self, BlackKingside, BlackQueenside, WhiteKingside, WhiteQueenside}};
 use super::piece::Piece;
 use std::fmt;
 
@@ -162,7 +162,7 @@ impl Move {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct Square(u8);
+pub struct Square(pub u8);
 
 impl Square {
     pub const fn new(index: u32) -> Self {
@@ -276,6 +276,13 @@ pub struct Board {
     pub to_move: Color,
     pub en_passant: Bitboard, // the square a pawn may move to on the next move completing an en-passant capture (empty if not available)
     pub castling_rights: u8, // [White QS][White KS][Black QS][Black KS][----]
+
+    pub game_state: u64, // 64-bit word to store game state for hashing and unmaking moves
+    // Description:
+    // [0]: 1 for white to move, 0 for black to move
+    // [1..6]: 6 bits for en-passant square index (0-63), 0 if no en-passant available
+    // [7..10]: 4 bits for castling rights [White QS][White KS][Black QS][Black KS]
+    // [11..63]: 53 bits for future use (currently unused) 50-move rule, 3-fold rep., etc.
 }
 
 impl Board {
@@ -290,21 +297,18 @@ impl Board {
 
         // capture current board state to be returned
         let curr_board = self.clone();
+        let dest = mv.to();
 
-        let (bb_idx, color_offset, lose_castling_rights) = match self.to_move {
+        let (bb_idx, color_offset) = match self.to_move {
             Color::White => (
                 mv.piece() as usize, // deleting from black
                 6,
-                0b00110000,
             ), 
             Color::Black => (
                 mv.piece() as usize + 6,  // deleting from white
                 0,
-                0b11000000,
             )
         };
-
-        let dest = mv.to();
 
         // move the target piece from the origin to the target square
         self.bitboards[bb_idx] ^= mv.from() | dest; // Clear the bit at from and set it at to
@@ -324,32 +328,6 @@ impl Board {
                 // Find the bb via a for loop and break it as soon as found so max 6 ops probably less
                 for bb_idx in 0..6 {
                     if (self.bitboards[bb_idx + color_offset] & dest) != 0 {
-                        // If the captured piece is a rook then castling rights are removed
-                        // on the respective side
-                        if bb_idx == 3 { // capturing a rook
-                            // determine which 'side' the rook is on
-                            match self.to_move {
-                                Color::White => { // white is capturing a black rook
-                                    if (dest & (RANK_8 & FILE_A)) != 0 {
-                                        // Black loses castling rights queenside
-                                        self.castling_rights &= 0b11010000;
-                                    } else if (dest & (RANK_8 & FILE_H)) != 0 {
-                                        // Black loses castling rights kingside
-                                        self.castling_rights &= 0b11100000;
-                                    }
-                                }, 
-                                Color::Black => { // black is capturing a white rook
-                                    if (dest & (RANK_1 & FILE_A)) != 0 {
-                                        // White loses castling rights queenside
-                                        self.castling_rights &= 0b01110000;
-                                    } else if (dest & (RANK_1 & FILE_H)) != 0 {
-                                        // White loses castling rights kingside
-                                        self.castling_rights &= 0b10110000;
-                                    }
-                                }
-                            }
-                        }
-
                         self.bitboards[bb_idx + color_offset] &= !dest;
                         break;
                     }
@@ -384,8 +362,9 @@ impl Board {
             }
         }
 
+        // Castling (move the rook)
         if mv.is_castling() {
-            // deal with where to put the rook, as king is already moved
+            // King has already been moved
             if let Some(c) = mv.castling_is() {
                 match c {
                     WhiteKingside  => self.bitboards[Piece::WhiteRook as usize] ^= KINGSIDE_CASTLE_ROOK_XOR_DEST[0],
@@ -394,33 +373,14 @@ impl Board {
                     BlackQueenside => self.bitboards[Piece::BlackRook as usize] ^= QUEENSIDE_CASTLE_ROOK_XOR_DEST[1],
                 }
             }
-            
-            // also set the appropriate castling flags to false
-            self.castling_rights &= lose_castling_rights;
         }
 
-        // If a king moved, castling is now no longer permitted
-        if mv.piece() == PieceType::King {
-            self.castling_rights &= lose_castling_rights; // sets bits of appropriate part of flag to 0
-        } else if mv.piece() == PieceType::Rook {
-            // If a rook moved from its origin square update castling rights of the respective side
-            match self.to_move {
-                Color::White => {
-                    if (mv.from() & WHITE_QS_ROOK) != 0 {
-                        self.castling_rights &= 0b01110000;
-                    } else if (mv.from() & WHITE_KS_ROOK) != 0 {
-                        self.castling_rights &= 0b10110000;
-                    }
-                },
-                Color::Black => {
-                    if (mv.from() & BLACK_QS_ROOK) != 0 {
-                        self.castling_rights &= 0b11010000;
-                    } else if (mv.from() & BLACK_KS_ROOK) != 0 {
-                        self.castling_rights &= 0b11100000;
-                    }
-                }
-            }
-        }
+        // Update castling rights
+        // 1. If a piece moves FROM E1, A1, H1, E8, A8, H8 -> updates castling rights
+        // 2. If a piece is captured ON A1, H1, A8, H8 -> updates castling rights
+        // 3. For any other square, ANDing 0b11110000 is a no-op that leaves rights intact
+        self.castling_rights &= CASTLING_RIGHTS_MASK[mv.from_index() as usize];
+        self.castling_rights &= CASTLING_RIGHTS_MASK[mv.to_index() as usize];
 
         // switch to_move over to the other player
         self.to_move = !self.to_move;
@@ -436,10 +396,10 @@ impl Board {
 
     pub fn can_castle(&self, castling_flag: Castling) -> bool {
         match castling_flag {
-            Castling::WhiteQueenside => (self.castling_rights & 0b10000000) != 0,
-            Castling::WhiteKingside  => (self.castling_rights & 0b01000000) != 0,
-            Castling::BlackQueenside => (self.castling_rights & 0b00100000) != 0,
-            Castling::BlackKingside  => (self.castling_rights & 0b00010000) != 0
+            Castling::WhiteQueenside => (self.castling_rights & WHITE_QS) != 0,
+            Castling::WhiteKingside  => (self.castling_rights & WHITE_KS) != 0,
+            Castling::BlackQueenside => (self.castling_rights & BLACK_QS) != 0,
+            Castling::BlackKingside  => (self.castling_rights & BLACK_KS) != 0
         }
     }
 
@@ -501,10 +461,10 @@ impl Board {
         let mut castling_rights = 0u8;
         for c in castling.chars() {
             match c { // [White QS][White KS][Black QS][Black KS][----]
-                'K' => castling_rights |= 0b01000000,
-                'Q' => castling_rights |= 0b10000000,
-                'k' => castling_rights |= 0b00010000,
-                'q' => castling_rights |= 0b00100000,
+                'K' => castling_rights |= WHITE_KS,
+                'Q' => castling_rights |= WHITE_QS,
+                'k' => castling_rights |= BLACK_KS,
+                'q' => castling_rights |= BLACK_QS,
                 _ => {}
             }
         }

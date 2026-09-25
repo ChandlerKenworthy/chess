@@ -1,3 +1,5 @@
+use crate::generator::Square;
+
 pub type Bitboard = u64; // Bitboards are unsigned 64-bit integers
 
 pub fn print_bitboard(bb: Bitboard) {
@@ -196,6 +198,29 @@ pub const WHITE_QS_ROOK: Bitboard = RANK_1 & FILE_A;
 pub const WHITE_KS_ROOK: Bitboard = RANK_1 & FILE_H;
 pub const BLACK_QS_ROOK: Bitboard = RANK_8 & FILE_A;
 pub const BLACK_KS_ROOK: Bitboard = RANK_8 & FILE_H;
+
+// Castling rights bitmasks
+pub const WHITE_QS: u8 = 0b10000000;
+pub const WHITE_KS: u8 = 0b01000000;
+pub const BLACK_QS: u8 = 0b00100000;
+pub const BLACK_KS: u8 = 0b00010000;
+
+pub const CASTLING_RIGHTS_MASK: [u8; 64] = {
+    // Default: 0b11110000 preserves all castling rights
+    let mut table = [0b11110000; 64];
+
+    // White King or Rook moves/captures
+    table[Square::e1.0 as usize] &= !(WHITE_KS | WHITE_QS); // E1 clears all White castling
+    table[Square::a1.0 as usize] &= !WHITE_QS;              // A1 clears White Queenside
+    table[Square::h1.0 as usize] &= !WHITE_KS;              // H1 clears White Kingside
+
+    // Black King or Rook moves/captures
+    table[Square::e8.0 as usize] &= !(BLACK_KS | BLACK_QS); // E8 clears all Black castling
+    table[Square::a8.0 as usize] &= !BLACK_QS;              // A8 clears Black Queenside
+    table[Square::h8.0 as usize] &= !BLACK_KS;              // H8 clears Black Kingside
+
+    table
+};
 
 pub const KINGSIDE_CASTLE_KING_DEST: [Bitboard; 2] = [RANK_1 & FILE_G, RANK_8 & FILE_G];
 pub const QUEENSIDE_CASTLE_KING_DEST: [Bitboard; 2] = [RANK_1 & FILE_C, RANK_8 & FILE_C];
