@@ -522,19 +522,21 @@ impl Generator {
                 Color::Black => mvs & RANK_1
             };
             self.add_moves(moves, mvs & !promotion_mvs, from, PieceType::Pawn, false);
+            
             while promotion_mvs != 0 {
                 let to = 1 << promotion_mvs.trailing_zeros();
+                
                 moves.push( // promote to a queen
-                    Move::new_with_flags(from, to, PieceType::Pawn, 0x400)
+                    Move::new_with_flags(from, to, PieceType::Pawn, 1 << 22)
                 );
                 moves.push( // promote to a rook
-                    Move::new_with_flags(from, to, PieceType::Pawn, 0x200)
+                    Move::new_with_flags(from, to, PieceType::Pawn, 1 << 23)
                 );
                 moves.push( // promote to a knight
-                    Move::new_with_flags(from, to, PieceType::Pawn, 0x100)
+                    Move::new_with_flags(from, to, PieceType::Pawn, 1 << 24)
                 );
                 moves.push( // promote to a bishop
-                    Move::new_with_flags(from, to, PieceType::Pawn, 0x80)
+                    Move::new_with_flags(from, to, PieceType::Pawn, 1 << 25)
                 );
                 
                 promotion_mvs &= promotion_mvs - 1;

@@ -122,7 +122,20 @@ impl Move {
         // Get the Square of from and to and print it
         let from: Square = Square::new(self.from_index());
         let to: Square = Square::new(self.to_index());
-        print!("{from}{to}"); 
+        if self.is_promotion() {
+            if let Some(promotes_to) = self.promotes_to() {
+                match promotes_to {
+                    PieceType::Queen => print!("{from}{to}q"),
+                    PieceType::Rook => print!("{from}{to}r"),
+                    PieceType::Knight => print!("{from}{to}n"),
+                    PieceType::Bishop => print!("{from}{to}b"),
+                    _ => print!("{from}{to}"), // Should not happen
+                }
+                return;
+            }
+        } else {
+            print!("{from}{to}"); 
+        }
     }
 
     pub fn from(&self) -> Bitboard {

@@ -8,18 +8,18 @@ fn main() {
 
     let startfen: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
     let kiwipete: &str = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq -";
-    let pos3: &str = "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1";
+    let pos5: &str = "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8";
 
     // kiwipete --> a2a3
-    let x: &str = "8/2p5/3p4/KP5r/4P2k/8/6p1/7R b - - 1 3";
+    let x: &str = "rnb2k1r/pp1Pbppp/1qp5/8/2B5/P7/1PP1NnPP/RNBQK2R w KQ - 1 9";
 
     //let mut b = Board::new();
-    let mut b = Board::from_fen(pos3).expect("Invalid FEN");
+    let mut b = Board::from_fen(pos5).expect("Invalid FEN");
     b.print();
 
     let mut g: Generator = Generator::new(b);
 
-    let depth = 6;
+    let depth = 4;
     perft_divide(&mut g, depth);
 
 
