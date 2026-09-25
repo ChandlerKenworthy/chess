@@ -1,5 +1,5 @@
 use std::{debug_assert, ops::{Index, IndexMut}};
-use crate::generator::{Bitboard, Color, PieceType, bitboard::{BLACK_KS_ROOK, BLACK_QS_ROOK, FILE_A, FILE_D, FILE_F, FILE_H, RANK_1, RANK_8, STARTING_BOARD, WHITE_KS_ROOK, WHITE_QS_ROOK, north, print_bitboard, south}, piece::Castling::{self, BlackKingside, BlackQueenside, WhiteKingside, WhiteQueenside}};
+use crate::generator::{Bitboard, Color, PieceType, bitboard::{BLACK_KS_ROOK, BLACK_QS_ROOK, FILE_A, FILE_D, FILE_F, FILE_H, RANK_1, RANK_8, STARTING_BOARD, WHITE_KS_ROOK, WHITE_QS_ROOK, north, south}, piece::Castling::{self, BlackKingside, BlackQueenside, WhiteKingside, WhiteQueenside}};
 use super::piece::Piece;
 use std::fmt;
 
@@ -295,10 +295,9 @@ impl Board {
         // pieces bitboard
         if mv.is_capture() {
             if mv.is_en_passant() { // Capturing an enemy pawn and we can easily work out where
-                let enemy_bb_idx = 0;
-                self.bitboards[enemy_bb_idx] = match self.to_move {
-                    Color::White => self.bitboards[enemy_bb_idx] & !south(mv.to()),
-                    Color::Black => self.bitboards[enemy_bb_idx] & !north(mv.to()),
+                match self.to_move {
+                    Color::White => self.bitboards[Piece::BlackPawn as usize] &= !south(mv.to()),
+                    Color::Black => self.bitboards[Piece::WhitePawn as usize] &= !north(mv.to()),
                 }
             } else {
                 // Find the bb via a for loop and break it as soon as found so max 6 ops probably less
@@ -398,16 +397,16 @@ impl Board {
             // If a rook moved from its origin square update castling rights of the respective side
             match self.to_move {
                 Color::White => {
-                    if (mv.to() & WHITE_QS_ROOK) != 0 {
+                    if (mv.from() & WHITE_QS_ROOK) != 0 {
                         self.castling_rights &= 0b01110000;
-                    } else if (mv.to() & WHITE_KS_ROOK) != 0 {
+                    } else if (mv.from() & WHITE_KS_ROOK) != 0 {
                         self.castling_rights &= 0b10110000;
                     }
                 },
                 Color::Black => {
-                    if (mv.to() & BLACK_QS_ROOK) != 0 {
+                    if (mv.from() & BLACK_QS_ROOK) != 0 {
                         self.castling_rights &= 0b11010000;
-                    } else if (mv.to() & BLACK_KS_ROOK) != 0 {
+                    } else if (mv.from() & BLACK_KS_ROOK) != 0 {
                         self.castling_rights &= 0b11100000;
                     }
                 }

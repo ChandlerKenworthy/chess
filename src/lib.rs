@@ -1,6 +1,6 @@
 // Expose the generator module
 pub mod generator;
-use crate::generator::movegen::Generator;
+use crate::generator::{movegen::Generator};
 
 fn perft(generator: &mut Generator, depth: u32) -> u64 {
     if depth == 0 {
@@ -31,13 +31,12 @@ pub fn perft_divide(generator: &mut Generator, depth: u32) {
     let mut total = 0u64;
 
     for mv in moves {
-        let undo = generator.b.make_move(mv);
-        let count = perft(generator, depth - 1);
-        total += count;
-        generator.b.unmake_move(undo);
-        //print!("Root move: ");
-        mv.print();
-        print!(": {count}\n");
+            let undo = generator.b.make_move(mv);
+            let count = perft(generator, depth - 1);
+            total += count;
+            generator.b.unmake_move(undo);
+            mv.print();
+            print!(": {count}\n");
     }
     println!("Total: {}", total);
 }
@@ -57,6 +56,26 @@ use super::*;
 
     const START: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
     const KIWIPETE: &str = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq -";
+    const SJESA: &str = "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10";
+    const POS3: &str = "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1";
+
+    #[test]
+    fn pos3_depth_1_to_6() {
+        assert_eq!(run(POS3, 1), 14);
+        assert_eq!(run(POS3, 2), 191);
+        assert_eq!(run(POS3, 3), 2_812);
+        assert_eq!(run(POS3, 4), 43_238);
+        assert_eq!(run(POS3, 5), 674_624);
+        assert_eq!(run(POS3, 6), 11_030_083);
+    }
+
+    #[test]
+    fn sjesa_depth_1_to_4() {
+        assert_eq!(run(SJESA, 1), 46);
+        assert_eq!(run(SJESA, 2), 2_079);
+        assert_eq!(run(SJESA, 3), 89_890);
+        assert_eq!(run(SJESA, 4), 3_894_594);
+    }
 
     #[test]
     fn kiwipete_depth_1_to_4() {
