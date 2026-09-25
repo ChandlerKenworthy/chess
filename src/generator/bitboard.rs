@@ -197,6 +197,11 @@ pub const WHITE_KS_ROOK: Bitboard = RANK_1 & FILE_H;
 pub const BLACK_QS_ROOK: Bitboard = RANK_8 & FILE_A;
 pub const BLACK_KS_ROOK: Bitboard = RANK_8 & FILE_H;
 
+pub const KINGSIDE_CASTLE_KING_DEST: [Bitboard; 2] = [RANK_1 & FILE_G, RANK_8 & FILE_G];
+pub const QUEENSIDE_CASTLE_KING_DEST: [Bitboard; 2] = [RANK_1 & FILE_C, RANK_8 & FILE_C];
+pub const KINGSIDE_CASTLE_ROOK_XOR_DEST: [Bitboard; 2] = [RANK_1 & (FILE_H | FILE_F), RANK_8 & (FILE_H | FILE_F)];
+pub const QUEENSIDE_CASTLE_ROOK_XOR_DEST: [Bitboard; 2] = [RANK_1 & (FILE_A | FILE_D), RANK_8 & (FILE_A | FILE_D)];
+
 pub const WHITE_KINGSIDE_FREE_SQUARES: Bitboard = RANK_1 & (FILE_F | FILE_G);
 pub const WHITE_QUEENSIDE_FREE_SQUARES: Bitboard = RANK_1 & (FILE_B | FILE_C | FILE_D);
 pub const BLACK_KINGSIDE_FREE_SQUARES: Bitboard = RANK_8 & (FILE_F | FILE_G);

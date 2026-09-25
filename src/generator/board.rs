@@ -1,5 +1,5 @@
 use std::{debug_assert, ops::{Index, IndexMut}};
-use crate::generator::{Bitboard, Color, PieceType, bitboard::{BLACK_KS_ROOK, BLACK_QS_ROOK, FILE_A, FILE_D, FILE_F, FILE_H, RANK_1, RANK_8, STARTING_BOARD, WHITE_KS_ROOK, WHITE_QS_ROOK, north, south}, piece::Castling::{self, BlackKingside, BlackQueenside, WhiteKingside, WhiteQueenside}};
+use crate::generator::{Bitboard, Color, PieceType, bitboard::{BLACK_KS_ROOK, BLACK_QS_ROOK, FILE_A, FILE_D, FILE_F, FILE_H, KINGSIDE_CASTLE_ROOK_XOR_DEST, QUEENSIDE_CASTLE_ROOK_XOR_DEST, RANK_1, RANK_8, STARTING_BOARD, WHITE_KS_ROOK, WHITE_QS_ROOK, north, south}, piece::Castling::{self, BlackKingside, BlackQueenside, WhiteKingside, WhiteQueenside}};
 use super::piece::Piece;
 use std::fmt;
 
@@ -291,13 +291,23 @@ impl Board {
         // capture current board state to be returned
         let curr_board = self.clone();
 
-        // move the target piece from the origin to the target square
-        let bb_idx = match self.to_move {
-            Color::White => mv.piece() as usize,
-            Color::Black => mv.piece() as usize + 6
+        let (bb_idx, color_offset, lose_castling_rights) = match self.to_move {
+            Color::White => (
+                mv.piece() as usize, // deleting from black
+                6,
+                0b00110000,
+            ), 
+            Color::Black => (
+                mv.piece() as usize + 6,  // deleting from white
+                0,
+                0b11000000,
+            )
         };
 
-        self.bitboards[bb_idx] ^= mv.from() | mv.to(); // Clear the bit at from and set it at to
+        let dest = mv.to();
+
+        // move the target piece from the origin to the target square
+        self.bitboards[bb_idx] ^= mv.from() | dest; // Clear the bit at from and set it at to
 
         // Disable future en-passant, this is updated if the move was a double pawn push
         self.en_passant = 0;
@@ -307,36 +317,32 @@ impl Board {
         if mv.is_capture() {
             if mv.is_en_passant() { // Capturing an enemy pawn and we can easily work out where
                 match self.to_move {
-                    Color::White => self.bitboards[Piece::BlackPawn as usize] &= !south(mv.to()),
-                    Color::Black => self.bitboards[Piece::WhitePawn as usize] &= !north(mv.to()),
+                    Color::White => self.bitboards[Piece::BlackPawn as usize] &= !south(dest),
+                    Color::Black => self.bitboards[Piece::WhitePawn as usize] &= !north(dest),
                 }
             } else {
                 // Find the bb via a for loop and break it as soon as found so max 6 ops probably less
-                let color_offset_idx = match self.to_move {
-                    Color::White => 6, // deleting from black
-                    Color::Black => 0 // deleting from white
-                };
                 for bb_idx in 0..6 {
-                    if (self.bitboards[bb_idx + color_offset_idx] & mv.to()) != 0 {
+                    if (self.bitboards[bb_idx + color_offset] & dest) != 0 {
                         // If the captured piece is a rook then castling rights are removed
                         // on the respective side
                         if bb_idx == 3 { // capturing a rook
                             // determine which 'side' the rook is on
                             match self.to_move {
                                 Color::White => { // white is capturing a black rook
-                                    if (mv.to() & (RANK_8 & FILE_A)) != 0 {
+                                    if (dest & (RANK_8 & FILE_A)) != 0 {
                                         // Black loses castling rights queenside
                                         self.castling_rights &= 0b11010000;
-                                    } else if (mv.to() & (RANK_8 & FILE_H)) != 0 {
+                                    } else if (dest & (RANK_8 & FILE_H)) != 0 {
                                         // Black loses castling rights kingside
                                         self.castling_rights &= 0b11100000;
                                     }
                                 }, 
                                 Color::Black => { // black is capturing a white rook
-                                    if (mv.to() & (RANK_1 & FILE_A)) != 0 {
+                                    if (dest & (RANK_1 & FILE_A)) != 0 {
                                         // White loses castling rights queenside
                                         self.castling_rights &= 0b01110000;
-                                    } else if (mv.to() & (RANK_1 & FILE_H)) != 0 {
+                                    } else if (dest & (RANK_1 & FILE_H)) != 0 {
                                         // White loses castling rights kingside
                                         self.castling_rights &= 0b10110000;
                                     }
@@ -344,7 +350,7 @@ impl Board {
                             }
                         }
 
-                        self.bitboards[bb_idx + color_offset_idx] &= !mv.to();
+                        self.bitboards[bb_idx + color_offset] &= !dest;
                         break;
                     }
                 }
@@ -353,8 +359,8 @@ impl Board {
 
         if mv.is_double_pawn_push() {
             self.en_passant = match self.to_move {
-                Color::White => south(mv.to()),
-                Color::Black => north(mv.to())
+                Color::White => south(dest),
+                Color::Black => north(dest)
             };
         }
 
@@ -366,13 +372,13 @@ impl Board {
 
                 match self.to_move {
                     Color::White => {
-                        self.bitboards[promotion_idx] |= mv.to();
-                        self.bitboards[Piece::WhitePawn as usize] ^= mv.to();
+                        self.bitboards[promotion_idx] |= dest;
+                        self.bitboards[Piece::WhitePawn as usize] ^= dest;
 
                     },
                     Color::Black => {
-                        self.bitboards[promotion_idx + 6] |= mv.to();
-                        self.bitboards[Piece::BlackPawn as usize] ^= mv.to();
+                        self.bitboards[promotion_idx + 6] |= dest;
+                        self.bitboards[Piece::BlackPawn as usize] ^= dest;
                     }
                 }
             }
@@ -382,29 +388,21 @@ impl Board {
             // deal with where to put the rook, as king is already moved
             if let Some(c) = mv.castling_is() {
                 match c {
-                    WhiteKingside  => self.bitboards[Piece::WhiteRook as usize] ^= RANK_1 & (FILE_H | FILE_F),
-                    WhiteQueenside => self.bitboards[Piece::WhiteRook as usize] ^= RANK_1 & (FILE_A | FILE_D),
-                    BlackKingside  => self.bitboards[Piece::BlackRook as usize] ^= RANK_8 & (FILE_H | FILE_F),
-                    BlackQueenside => self.bitboards[Piece::BlackRook as usize] ^= RANK_8 & (FILE_A | FILE_D),
+                    WhiteKingside  => self.bitboards[Piece::WhiteRook as usize] ^= KINGSIDE_CASTLE_ROOK_XOR_DEST[0],
+                    WhiteQueenside => self.bitboards[Piece::WhiteRook as usize] ^= QUEENSIDE_CASTLE_ROOK_XOR_DEST[0],
+                    BlackKingside  => self.bitboards[Piece::BlackRook as usize] ^= KINGSIDE_CASTLE_ROOK_XOR_DEST[1],
+                    BlackQueenside => self.bitboards[Piece::BlackRook as usize] ^= QUEENSIDE_CASTLE_ROOK_XOR_DEST[1],
                 }
             }
             
             // also set the appropriate castling flags to false
-            match self.to_move {
-                Color::White => self.castling_rights &= 0b00110000,
-                Color::Black => self.castling_rights &= 0b11000000,
-            }
+            self.castling_rights &= lose_castling_rights;
         }
 
         // If a king moved, castling is now no longer permitted
         if mv.piece() == PieceType::King {
-            match self.to_move {
-                Color::White => self.castling_rights &= 0b00110000,
-                Color::Black => self.castling_rights &= 0b11000000,
-            }
-        }
-
-        if mv.piece() == PieceType::Rook {
+            self.castling_rights &= lose_castling_rights; // sets bits of appropriate part of flag to 0
+        } else if mv.piece() == PieceType::Rook {
             // If a rook moved from its origin square update castling rights of the respective side
             match self.to_move {
                 Color::White => {

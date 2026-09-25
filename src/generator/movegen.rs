@@ -1,5 +1,5 @@
 use crate::generator::{Bitboard, Board, Color, Move, Piece, PieceType, bitboard::{
-    BLACK_KINGSIDE_ATTACKS_KING_OR_PAWN, BLACK_KINGSIDE_ATTACKS_KNIGHT, BLACK_KINGSIDE_FREE_SQUARES, BLACK_KINGSIDE_SLIDER_ATTACKS, BLACK_QUEENSIDE_ATTACKS_KING_OR_PAWN, BLACK_QUEENSIDE_ATTACKS_KNIGHT, BLACK_QUEENSIDE_FREE_SQUARES, BLACK_QUEENSIDE_SLIDER_ATTACKS, FILE_E, FILE_F, PRIMARY_DIAGONAL_RAYS, PRIMARY_STRAIGHT_RAYS, RANK_1, RANK_3, RANK_4, RANK_6, RANK_8, REVERSE_SQUARE_BB, SECONDARY_DIAGONAL_RAYS, SECONDARY_STRAIGHT_RAYS, WHITE_KINGSIDE_ATTACKS_KING_OR_PAWN, WHITE_KINGSIDE_ATTACKS_KNIGHT, WHITE_KINGSIDE_FREE_SQUARES, WHITE_KINGSIDE_SLIDER_ATTACKS, WHITE_QUEENSIDE_ATTACKS_KING_OR_PAWN, WHITE_QUEENSIDE_ATTACKS_KNIGHT, WHITE_QUEENSIDE_FREE_SQUARES, WHITE_QUEENSIDE_SLIDER_ATTACKS, east, north, print_bitboard, south, west
+    BLACK_KINGSIDE_ATTACKS_KING_OR_PAWN, BLACK_KINGSIDE_ATTACKS_KNIGHT, BLACK_KINGSIDE_FREE_SQUARES, BLACK_KINGSIDE_SLIDER_ATTACKS, BLACK_QUEENSIDE_ATTACKS_KING_OR_PAWN, BLACK_QUEENSIDE_ATTACKS_KNIGHT, BLACK_QUEENSIDE_FREE_SQUARES, BLACK_QUEENSIDE_SLIDER_ATTACKS, KINGSIDE_CASTLE_KING_DEST, PRIMARY_DIAGONAL_RAYS, PRIMARY_STRAIGHT_RAYS, QUEENSIDE_CASTLE_KING_DEST, RANK_1, RANK_3, RANK_6, RANK_8, REVERSE_SQUARE_BB, SECONDARY_DIAGONAL_RAYS, SECONDARY_STRAIGHT_RAYS, WHITE_KINGSIDE_ATTACKS_KING_OR_PAWN, WHITE_KINGSIDE_ATTACKS_KNIGHT, WHITE_KINGSIDE_FREE_SQUARES, WHITE_KINGSIDE_SLIDER_ATTACKS, WHITE_QUEENSIDE_ATTACKS_KING_OR_PAWN, WHITE_QUEENSIDE_ATTACKS_KNIGHT, WHITE_QUEENSIDE_FREE_SQUARES, WHITE_QUEENSIDE_SLIDER_ATTACKS, east, north, south, west
 }, piece::Castling};
 use crate::generator::Square;
 
@@ -117,36 +117,41 @@ impl Generator {
         Generator { b: b, color_offset_idx: color_offset_idx, self_occ: 0u64, not_self_occ: !0u64, oppn_occ: 0u64, total_occ: 0u64 }
     }
 
-    fn is_in_check(&self, color: Color, mv: Move) -> bool {
-        let color_offset_idx = match color {
-            Color::White => 6,
-            Color::Black => 0
+    fn is_in_check(&self, color: Color) -> bool {
+        let (king, offset, pawn_attack) = match color {
+            Color::White => (
+                self.b.bitboards[Piece::WhiteKing as usize],
+                6,
+                north as fn(u64) -> u64,
+            ),
+            Color::Black => (
+                self.b.bitboards[Piece::BlackKing as usize],
+                0,
+                south as fn(u64) -> u64,
+            ),
         };
 
-        let king: Bitboard = match color {
-            Color::White => self.b.bitboards[Piece::WhiteKing as usize],
-            Color::Black => self.b.bitboards[Piece::BlackKing as usize]
-        };
         let king_idx = king.trailing_zeros() as usize;
-
-        // TODO: [Optimisation] This lookup could easily be done when generating the kings moves, saves pushing to a vector
-        // then iterating over again
-        if (KNIGHT_MOVES[king_idx] & self.b.bitboards[PieceType::Knight as usize + color_offset_idx]) != 0 {
+        
+        if KNIGHT_MOVES[king_idx]
+        & self.b.bitboards[PieceType::Knight as usize + offset] != 0 {
             return true;
         }
 
-        let checking_enemy_pawns = match color {
-            Color::White => north(east(king) | west(king)),
-            Color::Black => south(east(king) | west(king))
-        };
-        if (checking_enemy_pawns & self.b.bitboards[PieceType::Pawn as usize + color_offset_idx]) != 0 {
+        let checking_enemy_pawns = pawn_attack(east(king) | west(king));
+        if (checking_enemy_pawns & self.b.bitboards[PieceType::Pawn as usize + offset]) != 0 {
+            return true;
+        }
+
+        if KING_MOVES[king_idx] & self.b.bitboards[PieceType::King as usize + offset] != 0 {
             return true;
         }
 
         let occupancy = self.b.total_occupancy();
-        let enemy_queen = self.b.bitboards[(PieceType::Queen as usize) + color_offset_idx];
-        let enemy_straight_sliders = self.b.bitboards[(PieceType::Rook as usize) + color_offset_idx] | enemy_queen;
-        let enemy_diagonal_sliders = self.b.bitboards[(PieceType::Bishop as usize) + color_offset_idx] | enemy_queen;
+
+        let enemy_queen = self.b.bitboards[(PieceType::Queen as usize) + offset];
+        let enemy_straight_sliders = self.b.bitboards[(PieceType::Rook as usize) + offset] | enemy_queen;
+        let enemy_diagonal_sliders = self.b.bitboards[(PieceType::Bishop as usize) + offset] | enemy_queen;
 
         let ray_attacks = hyperbola_quintessence(occupancy, king, PRIMARY_STRAIGHT_RAYS[king_idx]);
         if (ray_attacks & enemy_straight_sliders) != 0 {
@@ -172,7 +177,7 @@ impl Generator {
     }
 
     fn get_pseudo_legal_moves(&mut self) -> Vec<Move> {
-        let mut move_list = Vec::new();
+        let mut move_list: Vec<Move> = Vec::with_capacity(64);
 
         // Find which colour is due to move for bb offsets
         self.color_offset_idx = match self.b.to_move {
@@ -207,7 +212,7 @@ impl Generator {
         .into_iter()
         .filter(|&mv| {
             let undo = self.b.make_move(mv);
-            let legal = !self.is_in_check(!self.b.to_move, mv);
+            let legal = !self.is_in_check(!self.b.to_move);
             self.b.unmake_move(undo);
             legal
         })
@@ -383,18 +388,18 @@ impl Generator {
         match self.b.to_move {
             Color::White => {
                 if self.can_castle_kingside(Color::White) {
-                    moves.push(Move::new_with_flags(king, 1 << Square::g1, PieceType::King, 1 << 19));
+                    moves.push(Move::new_with_flags(king, KINGSIDE_CASTLE_KING_DEST[0], PieceType::King, 1 << 19));
                 }
                 if self.can_castle_queenside(Color::White) {
-                    moves.push(Move::new_with_flags(king, 1 << Square::c1, PieceType::King, 1 << 18));
+                    moves.push(Move::new_with_flags(king, QUEENSIDE_CASTLE_KING_DEST[0], PieceType::King, 1 << 18));
                 }
             }
             Color::Black => {
                 if self.can_castle_kingside(Color::Black) {
-                    moves.push(Move::new_with_flags(king, 1 << Square::g8, PieceType::King, 1 << 21));
+                    moves.push(Move::new_with_flags(king, KINGSIDE_CASTLE_KING_DEST[1], PieceType::King, 1 << 21));
                 }
                 if self.can_castle_queenside(Color::Black) {
-                    moves.push(Move::new_with_flags(king, 1 << Square::c8, PieceType::King, 1 << 20));
+                    moves.push(Move::new_with_flags(king, QUEENSIDE_CASTLE_KING_DEST[1], PieceType::King, 1 << 20));
                 }
             }
         }
