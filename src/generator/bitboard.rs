@@ -14,7 +14,7 @@ pub fn print_bitboard(bb: Bitboard) {
                 print!(" . ");
             }
         }
-        println!("");
+        println!();
     }
     println!("   A  B  C  D  E  F  G  H  \n");
 }
@@ -250,3 +250,9 @@ pub const WHITE_QUEENSIDE_ATTACKS_KNIGHT: Bitboard = (RANK_2 & (FILE_A | FILE_B 
                                                     | (RANK_3 & (FILE_B | FILE_C | FILE_D | FILE_E | FILE_F));
 pub const BLACK_QUEENSIDE_ATTACKS_KNIGHT: Bitboard = (RANK_7 & (FILE_A | FILE_B | FILE_C | FILE_E | FILE_F | FILE_G)) 
                                                     | (RANK_6 & (FILE_B | FILE_C | FILE_D | FILE_E | FILE_F));
+
+// For constructing moves (32-bit move words)
+pub const PROMOTE_QUEEN_AND_CAPTURE:  u32 = 1 << 17 | 1 << 22;
+pub const PROMOTE_ROOK_AND_CAPTURE:   u32 = 1 << 17 | 1 << 23;
+pub const PROMOTE_KNIGHT_AND_CAPTURE: u32 = 1 << 17 | 1 << 24;
+pub const PROMOTE_BISHOP_AND_CAPTURE: u32 = 1 << 17 | 1 << 25;

@@ -1,5 +1,5 @@
 use crate::generator::{Bitboard, Board, Color, Move, Piece, PieceType, bitboard::{
-    BLACK_KINGSIDE_ATTACKS_KING_OR_PAWN, BLACK_KINGSIDE_ATTACKS_KNIGHT, BLACK_KINGSIDE_FREE_SQUARES, BLACK_KINGSIDE_SLIDER_ATTACKS, BLACK_QUEENSIDE_ATTACKS_KING_OR_PAWN, BLACK_QUEENSIDE_ATTACKS_KNIGHT, BLACK_QUEENSIDE_FREE_SQUARES, BLACK_QUEENSIDE_SLIDER_ATTACKS, KINGSIDE_CASTLE_KING_DEST, PRIMARY_DIAGONAL_RAYS, PRIMARY_STRAIGHT_RAYS, QUEENSIDE_CASTLE_KING_DEST, RANK_1, RANK_3, RANK_6, RANK_8, REVERSE_SQUARE_BB, SECONDARY_DIAGONAL_RAYS, SECONDARY_STRAIGHT_RAYS, WHITE_KINGSIDE_ATTACKS_KING_OR_PAWN, WHITE_KINGSIDE_ATTACKS_KNIGHT, WHITE_KINGSIDE_FREE_SQUARES, WHITE_KINGSIDE_SLIDER_ATTACKS, WHITE_QUEENSIDE_ATTACKS_KING_OR_PAWN, WHITE_QUEENSIDE_ATTACKS_KNIGHT, WHITE_QUEENSIDE_FREE_SQUARES, WHITE_QUEENSIDE_SLIDER_ATTACKS, east, north, south, west
+    BLACK_KINGSIDE_ATTACKS_KING_OR_PAWN, BLACK_KINGSIDE_ATTACKS_KNIGHT, BLACK_KINGSIDE_FREE_SQUARES, BLACK_KINGSIDE_SLIDER_ATTACKS, BLACK_QUEENSIDE_ATTACKS_KING_OR_PAWN, BLACK_QUEENSIDE_ATTACKS_KNIGHT, BLACK_QUEENSIDE_FREE_SQUARES, BLACK_QUEENSIDE_SLIDER_ATTACKS, KINGSIDE_CASTLE_KING_DEST, PRIMARY_DIAGONAL_RAYS, PRIMARY_STRAIGHT_RAYS, PROMOTE_BISHOP_AND_CAPTURE, PROMOTE_KNIGHT_AND_CAPTURE, PROMOTE_QUEEN_AND_CAPTURE, PROMOTE_ROOK_AND_CAPTURE, QUEENSIDE_CASTLE_KING_DEST, RANK_1, RANK_3, RANK_6, RANK_8, REVERSE_SQUARE_BB, SECONDARY_DIAGONAL_RAYS, SECONDARY_STRAIGHT_RAYS, WHITE_KINGSIDE_ATTACKS_KING_OR_PAWN, WHITE_KINGSIDE_ATTACKS_KNIGHT, WHITE_KINGSIDE_FREE_SQUARES, WHITE_KINGSIDE_SLIDER_ATTACKS, WHITE_QUEENSIDE_ATTACKS_KING_OR_PAWN, WHITE_QUEENSIDE_ATTACKS_KNIGHT, WHITE_QUEENSIDE_FREE_SQUARES, WHITE_QUEENSIDE_SLIDER_ATTACKS, east, north, south, west
 }, piece::Castling};
 
 // Functions to generate lookup tables
@@ -100,6 +100,7 @@ fn hyperbola_quintessence(
 pub struct Generator {
     pub b: Board,
     color_offset_idx: i32,
+    oppn_color_offset_idx: i32,
     self_occ: Bitboard,
     not_self_occ: Bitboard,
     oppn_occ: Bitboard,
@@ -113,7 +114,12 @@ impl Generator {
             Color::Black => 6
         };
 
-        Generator { b: b, color_offset_idx: color_offset_idx, self_occ: 0u64, not_self_occ: !0u64, oppn_occ: 0u64, total_occ: 0u64 }
+        let oppn_color_offset_idx = match b.to_move {
+            Color::White => 6,
+            Color::Black => 0
+        };
+
+        Generator { b, color_offset_idx, oppn_color_offset_idx, self_occ: 0u64, not_self_occ: !0u64, oppn_occ: 0u64, total_occ: 0u64 }
     }
 
     fn is_in_check(&self, color: Color) -> bool {
@@ -179,9 +185,9 @@ impl Generator {
         let mut move_list: Vec<Move> = Vec::with_capacity(64);
 
         // Find which colour is due to move for bb offsets
-        self.color_offset_idx = match self.b.to_move {
-            Color::White => 0,
-            Color::Black => 6
+        (self.color_offset_idx, self.oppn_color_offset_idx) = match self.b.to_move {
+            Color::White => (0, 6),
+            Color::Black => (6, 0)
         };
 
         // Calculate the current board occupancies
@@ -219,14 +225,28 @@ impl Generator {
     }
 
     #[inline(always)]
-    fn add_moves(&self, moves: &mut Vec<Move>, mut mvs: Bitboard, from: Bitboard, p: PieceType, are_capture: bool) {
+    fn add_moves(&self, moves: &mut Vec<Move>, mut mvs: Bitboard, from: Bitboard, p: PieceType) {
         while mvs != 0 {
             let to: u64 = 1 << mvs.trailing_zeros();
             moves.push(Move::new(
                 from,
                 to,
+                p
+            ));
+            mvs &= mvs - 1;
+        }
+    }
+
+    #[inline(always)]
+    fn add_capture_moves(&self, moves: &mut Vec<Move>, mut mvs: Bitboard, from: Bitboard, p: PieceType) {
+        while mvs != 0 {
+            let to: u64 = 1 << mvs.trailing_zeros();
+            let captured = self.get_captured_piece(to).unwrap();
+            moves.push(Move::new_capture(
+                from,
+                to,
                 p,
-                are_capture
+                captured
             ));
             mvs &= mvs - 1;
         }
@@ -244,6 +264,26 @@ impl Generator {
             ));
             mvs &= mvs - 1;
         }
+    }
+
+    #[inline(always)]
+    fn get_captured_piece(&self, target_mask: Bitboard) -> Option<PieceType> {
+        let opp_offset = self.oppn_color_offset_idx as usize;
+        let bbs = &self.b.bitboards;
+
+        if (bbs[PieceType::Pawn as usize + opp_offset] & target_mask) != 0 {
+            return Some(PieceType::Pawn);
+        } else if (bbs[PieceType::Knight as usize + opp_offset] & target_mask) != 0 {
+            return Some(PieceType::Knight);
+        } else if (bbs[PieceType::Bishop as usize + opp_offset] & target_mask) != 0 {
+            return Some(PieceType::Bishop);
+        } else if (bbs[PieceType::Rook as usize + opp_offset] & target_mask) != 0 {
+            return Some(PieceType::Rook);
+        } else if (bbs[PieceType::Queen as usize + opp_offset] & target_mask) != 0 {
+            return Some(PieceType::Queen);
+        }
+
+        None
     }
 
     // Use HQ for generating the sliding piece attacks
@@ -271,8 +311,8 @@ impl Generator {
             let attack_moves = mvs & self.oppn_occ;
             let other_moves= mvs & !attack_moves;
 
-            self.add_moves(moves, attack_moves, from, PieceType::Rook, true);
-            self.add_moves(moves, other_moves, from, PieceType::Rook, false);
+            self.add_capture_moves(moves, attack_moves, from, PieceType::Rook);
+            self.add_moves(moves, other_moves, from, PieceType::Rook);
 
             rooks &= rooks - 1; // Remove the rook that was just processed
         }
@@ -299,8 +339,8 @@ impl Generator {
             let attack_moves = mvs & self.oppn_occ;
             let other_moves= mvs & !attack_moves;
 
-            self.add_moves(moves, attack_moves, from, PieceType::Bishop, true);
-            self.add_moves(moves, other_moves, from, PieceType::Bishop, false);
+            self.add_capture_moves(moves, attack_moves, from, PieceType::Bishop);
+            self.add_moves(moves, other_moves, from, PieceType::Bishop);
 
             bishops &= bishops - 1;
         }
@@ -339,8 +379,8 @@ impl Generator {
             let attack_moves = mvs & self.oppn_occ;
             let other_moves= mvs & !attack_moves;
 
-            self.add_moves(moves, attack_moves, from, PieceType::Queen, true);
-            self.add_moves(moves, other_moves, from, PieceType::Queen, false);
+            self.add_capture_moves(moves, attack_moves, from, PieceType::Queen);
+            self.add_moves(moves, other_moves, from, PieceType::Queen);
 
             queens &= queens - 1;
         }
@@ -360,8 +400,8 @@ impl Generator {
             let attack_moves = mvs & self.oppn_occ;
             let other_moves= mvs & !attack_moves;
 
-            self.add_moves(moves, attack_moves, from, PieceType::Knight, true);
-            self.add_moves(moves, other_moves, from, PieceType::Knight, false);
+            self.add_capture_moves(moves, attack_moves, from, PieceType::Knight);
+            self.add_moves(moves, other_moves, from, PieceType::Knight);
 
             // Clear the knight we just processed
             knights &= knights - 1;
@@ -377,8 +417,8 @@ impl Generator {
         let attack_moves = mvs & self.oppn_occ;
         let other_moves= mvs & !attack_moves;
 
-        self.add_moves(moves, attack_moves, from, PieceType::King, true);
-        self.add_moves(moves, other_moves, from, PieceType::King, false);
+        self.add_capture_moves(moves, attack_moves, from, PieceType::King);
+        self.add_moves(moves, other_moves, from, PieceType::King);
     }
 
     fn get_castling_moves(&self, moves: &mut Vec<Move>) {
@@ -525,7 +565,7 @@ impl Generator {
                 Color::White => mvs & RANK_8,
                 Color::Black => mvs & RANK_1
             };
-            self.add_moves(moves, mvs & !promotion_mvs, from, PieceType::Pawn, false);
+            self.add_moves(moves, mvs & !promotion_mvs, from, PieceType::Pawn);
             
             while promotion_mvs != 0 {
                 let to = 1 << promotion_mvs.trailing_zeros();
@@ -568,23 +608,23 @@ impl Generator {
                 Color::Black => mvs & RANK_1
             };
             let attack_mv = mvs & !attack_mv_promotion;
-            self.add_moves(moves, attack_mv, from, PieceType::Pawn, true);
+            self.add_capture_moves(moves, attack_mv, from, PieceType::Pawn);
 
             while attack_mv_promotion != 0 {
                 let to = 1 << attack_mv_promotion.trailing_zeros();
-                // Attack & promote to a queen
-                moves.push(
-                    // 33792
-                    Move::new_with_flags(from, to, PieceType::Pawn, (1 << 17) | (1 << 22))
+                let captured = self.get_captured_piece(to).unwrap();
+
+                moves.push( // Attack & promote to a queen
+                    Move::new_capture_with_flags(from, to, PieceType::Pawn, captured, PROMOTE_QUEEN_AND_CAPTURE)
                 );
                 moves.push( // Attack & promote to a rook
-                    Move::new_with_flags(from, to, PieceType::Pawn, (1 << 17) | (1 << 23))
+                    Move::new_capture_with_flags(from, to, PieceType::Pawn, captured, PROMOTE_ROOK_AND_CAPTURE)
                 );
                 moves.push( // Attack & promote to a knight
-                    Move::new_with_flags(from, to, PieceType::Pawn, (1 << 17) | (1 << 24))
+                    Move::new_capture_with_flags(from, to, PieceType::Pawn, captured, PROMOTE_KNIGHT_AND_CAPTURE)
                 );
                 moves.push( // Attack & promote to a bishop
-                    Move::new_with_flags(from, to, PieceType::Pawn, (1 << 17) | (1 << 25))
+                    Move::new_capture_with_flags(from, to, PieceType::Pawn, captured, PROMOTE_BISHOP_AND_CAPTURE)
                 );
                 
                 attack_mv_promotion &= attack_mv_promotion - 1;

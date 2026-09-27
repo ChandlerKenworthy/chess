@@ -10,6 +10,10 @@ pub fn perft(generator: &mut Generator, depth: u32) -> u64 {
     let moves = generator.get_moves();
 
     if depth == 1 {
+        //for mv in &moves {
+        //    mv.print();
+        //    print!(": 1\n");
+        //}
         return moves.len() as u64;
     }
 
@@ -36,7 +40,7 @@ pub fn perft_divide(generator: &mut Generator, depth: u32) {
             total += count;
             generator.b.unmake_move(undo);
             mv.print();
-            print!(": {count}\n");
+            println!(": {count}");
     }
     println!("Total: {}", total);
 }

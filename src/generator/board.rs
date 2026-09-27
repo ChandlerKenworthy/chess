@@ -1,5 +1,5 @@
-use std::{debug_assert, ops::{Index, IndexMut}};
-use crate::generator::{Bitboard, Color, PieceType, bitboard::{BLACK_KS, BLACK_KS_ROOK, BLACK_QS, BLACK_QS_ROOK, CASTLING_RIGHTS_MASK, FILE_A, FILE_D, FILE_F, FILE_H, KINGSIDE_CASTLE_ROOK_XOR_DEST, QUEENSIDE_CASTLE_ROOK_XOR_DEST, RANK_1, RANK_8, STARTING_BOARD, WHITE_KS, WHITE_KS_ROOK, WHITE_QS, WHITE_QS_ROOK, north, south}, piece::Castling::{self, BlackKingside, BlackQueenside, WhiteKingside, WhiteQueenside}};
+use std::{debug_assert, ops::{Index, IndexMut}, println};
+use crate::generator::{Bitboard, Color, PieceType, bitboard::{BLACK_KS, BLACK_QS, CASTLING_RIGHTS_MASK, KINGSIDE_CASTLE_ROOK_XOR_DEST, QUEENSIDE_CASTLE_ROOK_XOR_DEST, STARTING_BOARD, WHITE_KS, WHITE_QS, north, south}, piece::Castling::{self, BlackKingside, BlackQueenside, WhiteKingside, WhiteQueenside}};
 use super::piece::Piece;
 use std::fmt;
 
@@ -19,6 +19,7 @@ pub struct Move(u32); // A tuple struct
 // 23: promotion [R]
 // 24: promotion [N]
 // 25: promotion [B]
+// [26..28]: Captured piece type (or zero for none)
 
 impl fmt::Binary for Move {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -47,8 +48,9 @@ impl Move {
     //const IS_PROMOTION_KNIGHT: u32 = 1 << 24;
     //const IS_PROMOTION_BISHOP: u32 = 1 << 25;
     const IS_PROMOTION_ANY: u32 = (1 << 22) | (1 << 23) | (1 << 24) | (1 << 25);
+    const CAPTURED_PIECE_SHIFT: u32 = 26;
 
-    pub fn new(from: Bitboard, to: Bitboard, origin_piece: PieceType, is_capture: bool) -> Self {
+    pub fn new(from: Bitboard, to: Bitboard, origin_piece: PieceType) -> Self {
         // If using u8 could do e.g. debug_assert!(from < 64) etc.
         let from: u32 = from.trailing_zeros();
         let to: u32 = to.trailing_zeros();
@@ -57,7 +59,33 @@ impl Move {
             ((from) << Self::FROM_SHIFT) 
             | ((to) << Self::TO_SHIFT)
             | ((origin_piece as u32) << Self::PIECE_TYPE_SHIFT)
-            | (is_capture as u32) << 17
+        )
+    }
+
+    pub fn new_capture(from: Bitboard, to: Bitboard, origin_piece: PieceType, captured: PieceType) -> Self {
+        let from: u32 = from.trailing_zeros();
+        let to: u32 = to.trailing_zeros();
+
+        Self(
+            ((from) << Self::FROM_SHIFT) 
+            | ((to) << Self::TO_SHIFT)
+            | ((origin_piece as u32) << Self::PIECE_TYPE_SHIFT)
+            | Self::IS_CAPTURE
+            | (((captured as u32) + 1) << Self::CAPTURED_PIECE_SHIFT)
+        )
+    }
+
+    pub fn new_capture_with_flags(from: Bitboard, to: Bitboard, origin_piece: PieceType, captured: PieceType, flags: u32) -> Self {
+        let from: u32 = from.trailing_zeros();
+        let to: u32 = to.trailing_zeros();
+
+        Self(
+            ((from) << Self::FROM_SHIFT) 
+            | ((to) << Self::TO_SHIFT)
+            | ((origin_piece as u32) << Self::PIECE_TYPE_SHIFT)
+            | Self::IS_CAPTURE
+            | (((captured as u32) + 1) << Self::CAPTURED_PIECE_SHIFT)
+            | flags
         )
     }
 
@@ -131,7 +159,6 @@ impl Move {
                     PieceType::Bishop => print!("{from}{to}b"),
                     _ => print!("{from}{to}"), // Should not happen
                 }
-                return;
             }
         } else {
             print!("{from}{to}"); 
@@ -157,6 +184,15 @@ impl Move {
     pub fn piece(&self) -> PieceType {
         let piece = (self.0 >> Self::PIECE_TYPE_SHIFT) & Self::PIECE_TYPE_MASK;
         PieceType::try_from(piece).unwrap()
+    }
+
+    pub fn captured_piece(&self) -> Option<PieceType> {
+        let captured_piece = (self.0 >> Self::CAPTURED_PIECE_SHIFT) & Self::PIECE_TYPE_MASK;
+        if captured_piece == 0 {
+            None
+        } else {
+            Some(PieceType::try_from(captured_piece - 1).unwrap())
+        }
     }
 
 }
@@ -272,42 +308,90 @@ impl fmt::Display for Square {
 #[derive(Copy, Clone)]
 pub struct Board {
     pub bitboards: [Bitboard; 12],
-    // TODO: Compress into a short e.g. 32-bit word instead? 1 bit for color, 6 bits for en-passant square index, 4 for castling rights
     pub to_move: Color,
     pub en_passant: Bitboard, // the square a pawn may move to on the next move completing an en-passant capture (empty if not available)
     pub castling_rights: u8, // [White QS][White KS][Black QS][Black KS][----]
+}
 
-    pub game_state: u64, // 64-bit word to store game state for hashing and unmaking moves
-    // Description:
-    // [0]: 1 for white to move, 0 for black to move
-    // [1..6]: 6 bits for en-passant square index (0-63), 0 if no en-passant available
-    // [7..10]: 4 bits for castling rights [White QS][White KS][Black QS][Black KS]
-    // [11..63]: 53 bits for future use (currently unused) 50-move rule, 3-fold rep., etc.
+pub struct UndoState {
+    // the move that was made to achieve this state
+    pub mv: Move,
+    // The board as was before the last move was made
+    pub to_move: Color,
+    pub en_passant: Bitboard,
+    pub castling_rights: u8,
 }
 
 impl Board {
-    pub fn unmake_move(&mut self, undo: Board) {
-        self.bitboards = undo.bitboards;
+    pub fn unmake_move(&mut self, undo: UndoState) {
+        // TODO: Instead of 12 x 64-bit copies, just pass the 32-bit move and undo it,
+        // so move the piece from to() to from(), and if it was a capture, put the captured piece back on to() etc.
+        // unless it was en-passant
+        // also deal with weird castling stuff i.e. putting pieces back in the right place
+        // remember now .to_move is the opposite colour so flip everything back to front
+
+        // Put the piece that was moved back to its original square
+        let piece = undo.mv.piece();
+        let (offset, inverse_offset) = match undo.to_move {
+            Color::White => (0, 6),
+            Color::Black => (6, 0),
+        };
+
+        // Whilst the below is nice, this breaks in the case of promotion
+        // self.bitboards[piece as usize + offset] ^= undo.mv.from() | undo.mv.to(); // Clear the bit at to and set it at from
+
+        // Place the piece that was moved back at from
+        self.bitboards[piece as usize + offset] |= undo.mv.from();
+
+        if undo.mv.is_capture() {
+            // Put the captured piece back at mv.to() (unless it was en-passant)
+            if undo.mv.is_en_passant() {
+                // Put the captured pawn back on the square "behind" the pawn that moved
+                match undo.to_move {
+                    Color::White => self.bitboards[Piece::BlackPawn as usize] |= south(undo.mv.to()),
+                    Color::Black => self.bitboards[Piece::WhitePawn as usize] |= north(undo.mv.to()),
+                }
+            } else {
+                // get the piece type that was captured and put it back at to()
+                if let Some(captured_piece_type) = undo.mv.captured_piece() {
+                    self.bitboards[captured_piece_type as usize + inverse_offset] |= undo.mv.to();
+                }
+            }
+        } else if undo.mv.is_castling() {
+            // Put the corresponding rook back to its original square
+            if let Some(c) = undo.mv.castling_is() {
+                match c {
+                    WhiteKingside => self.bitboards[Piece::WhiteRook as usize] ^= KINGSIDE_CASTLE_ROOK_XOR_DEST[0],
+                    WhiteQueenside => self.bitboards[Piece::WhiteRook as usize] ^= QUEENSIDE_CASTLE_ROOK_XOR_DEST[0],
+                    BlackKingside => self.bitboards[Piece::BlackRook as usize] ^= KINGSIDE_CASTLE_ROOK_XOR_DEST[1],
+                    BlackQueenside => self.bitboards[Piece::BlackRook as usize] ^= QUEENSIDE_CASTLE_ROOK_XOR_DEST[1],
+                }
+            }
+        }
+
+        // If move is a promotion, it identifies the piece type that was promoted to and deletes it from the
+        // corresponding bitboard, otherwise defaults to the piece that was moved and deletes it
+        let piece_type = undo.mv.promotes_to().unwrap_or(piece);
+        self.bitboards[piece_type as usize + offset] &= !undo.mv.to();
+
         self.to_move = undo.to_move;
         self.en_passant = undo.en_passant;
         self.castling_rights = undo.castling_rights;
     }
 
-    pub fn make_move(&mut self, mv: Move) -> Board {
+    pub fn make_move(&mut self, mv: Move) -> UndoState {
+        let undo = UndoState {
+            mv,
+            to_move: self.to_move,
+            en_passant: self.en_passant,
+            castling_rights: self.castling_rights,
+        };
 
-        // capture current board state to be returned
-        let curr_board = self.clone();
         let dest = mv.to();
 
         let (bb_idx, color_offset) = match self.to_move {
-            Color::White => (
-                mv.piece() as usize, // deleting from black
-                6,
-            ), 
-            Color::Black => (
-                mv.piece() as usize + 6,  // deleting from white
-                0,
-            )
+            Color::White => (mv.piece() as usize, 6), 
+            Color::Black => (mv.piece() as usize + 6, 0)
         };
 
         // move the target piece from the origin to the target square
@@ -324,14 +408,9 @@ impl Board {
                     Color::White => self.bitboards[Piece::BlackPawn as usize] &= !south(dest),
                     Color::Black => self.bitboards[Piece::WhitePawn as usize] &= !north(dest),
                 }
-            } else {
-                // Find the bb via a for loop and break it as soon as found so max 6 ops probably less
-                for bb_idx in 0..6 {
-                    if (self.bitboards[bb_idx + color_offset] & dest) != 0 {
-                        self.bitboards[bb_idx + color_offset] &= !dest;
-                        break;
-                    }
-                }
+            } else if let Some(captured_piece_type) = mv.captured_piece() {
+                let captured_idx = captured_piece_type as usize;
+                self.bitboards[captured_idx + color_offset] &= !dest;
             }
         }
 
@@ -385,8 +464,8 @@ impl Board {
         // switch to_move over to the other player
         self.to_move = !self.to_move;
 
-        // return the captued board state
-        curr_board
+        // return the undo state
+        undo
     }
 
     fn piece_at(&self, square: usize) -> Option<Piece> {
