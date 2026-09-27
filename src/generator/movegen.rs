@@ -1,6 +1,9 @@
 use crate::generator::{Bitboard, Board, Color, Move, Piece, PieceType, bitboard::{
     BLACK_KINGSIDE_ATTACKS_KING_OR_PAWN, BLACK_KINGSIDE_ATTACKS_KNIGHT, BLACK_KINGSIDE_FREE_SQUARES, BLACK_KINGSIDE_SLIDER_ATTACKS, BLACK_QUEENSIDE_ATTACKS_KING_OR_PAWN, BLACK_QUEENSIDE_ATTACKS_KNIGHT, BLACK_QUEENSIDE_FREE_SQUARES, BLACK_QUEENSIDE_SLIDER_ATTACKS, KINGSIDE_CASTLE_KING_DEST, PRIMARY_DIAGONAL_RAYS, PRIMARY_STRAIGHT_RAYS, PROMOTE_BISHOP_AND_CAPTURE, PROMOTE_KNIGHT_AND_CAPTURE, PROMOTE_QUEEN_AND_CAPTURE, PROMOTE_ROOK_AND_CAPTURE, QUEENSIDE_CASTLE_KING_DEST, RANK_1, RANK_3, RANK_6, RANK_8, REVERSE_SQUARE_BB, SECONDARY_DIAGONAL_RAYS, SECONDARY_STRAIGHT_RAYS, WHITE_KINGSIDE_ATTACKS_KING_OR_PAWN, WHITE_KINGSIDE_ATTACKS_KNIGHT, WHITE_KINGSIDE_FREE_SQUARES, WHITE_KINGSIDE_SLIDER_ATTACKS, WHITE_QUEENSIDE_ATTACKS_KING_OR_PAWN, WHITE_QUEENSIDE_ATTACKS_KNIGHT, WHITE_QUEENSIDE_FREE_SQUARES, WHITE_QUEENSIDE_SLIDER_ATTACKS, east, north, south, west
 }, piece::Castling};
+use arrayvec::ArrayVec;
+
+pub type MoveList = ArrayVec<Move, 256>;
 
 // Functions to generate lookup tables
 const fn generate_knight_moves(square: usize) -> Bitboard {
@@ -181,8 +184,8 @@ impl Generator {
         false
     }
 
-    fn get_pseudo_legal_moves(&mut self) -> Vec<Move> {
-        let mut move_list: Vec<Move> = Vec::with_capacity(64);
+    fn get_pseudo_legal_moves(&mut self) -> MoveList {
+        let mut move_list = MoveList::new();
 
         // Find which colour is due to move for bb offsets
         (self.color_offset_idx, self.oppn_color_offset_idx) = match self.b.to_move {
@@ -209,23 +212,26 @@ impl Generator {
         move_list
     }
 
-    pub fn get_moves(&mut self) -> Vec<Move> {
-        let pseudo_legal = self.get_pseudo_legal_moves();
+    /// Returns a list of all legal moves for the current position.
+    pub fn get_moves(&mut self) -> MoveList {
+        let mut legal_moves = MoveList::new();
+        let pseudo_legal = self.get_pseudo_legal_moves(); // ideally also returns MoveList!
 
-        // Filter out the moves that leave the king in check
-        pseudo_legal
-        .into_iter()
-        .filter(|&mv| {
+        for mv in pseudo_legal {
             let undo = self.b.make_move(mv);
-            let legal = !self.is_in_check(!self.b.to_move);
+            let is_legal = !self.is_in_check(!self.b.to_move);
             self.b.unmake_move(undo);
-            legal
-        })
-        .collect()
+
+            if is_legal {
+                legal_moves.push(mv); // Stack push (zero allocations)
+            }
+        }
+
+        legal_moves
     }
 
     #[inline(always)]
-    fn add_moves(&self, moves: &mut Vec<Move>, mut mvs: Bitboard, from: Bitboard, p: PieceType) {
+    fn add_moves(&self, moves: &mut MoveList, mut mvs: Bitboard, from: Bitboard, p: PieceType) {
         while mvs != 0 {
             let to: u64 = 1 << mvs.trailing_zeros();
             moves.push(Move::new(
@@ -238,7 +244,7 @@ impl Generator {
     }
 
     #[inline(always)]
-    fn add_capture_moves(&self, moves: &mut Vec<Move>, mut mvs: Bitboard, from: Bitboard, p: PieceType) {
+    fn add_capture_moves(&self, moves: &mut MoveList, mut mvs: Bitboard, from: Bitboard, p: PieceType) {
         while mvs != 0 {
             let to: u64 = 1 << mvs.trailing_zeros();
             let captured = self.get_captured_piece(to).unwrap();
@@ -253,7 +259,7 @@ impl Generator {
     }
 
     #[inline(always)]
-    fn add_moves_with_flags(&self, moves: &mut Vec<Move>, mut mvs: Bitboard, from: Bitboard, p: PieceType, flags: u32) {
+    fn add_moves_with_flags(&self, moves: &mut MoveList, mut mvs: Bitboard, from: Bitboard, p: PieceType, flags: u32) {
         while mvs != 0 {
             let to: u64 = 1 << mvs.trailing_zeros();
             moves.push(Move::new_with_flags(
@@ -288,7 +294,7 @@ impl Generator {
 
     // Use HQ for generating the sliding piece attacks
     // for now no lookup table
-    fn get_rook_moves(&self, moves: &mut Vec<Move>) {
+    fn get_rook_moves(&self, moves: &mut MoveList) {
         let mut rooks = self.b.bitboards[(PieceType::Rook as usize) + self.color_offset_idx as usize];
 
         while rooks != 0 {
@@ -318,7 +324,7 @@ impl Generator {
         }
     }
 
-    fn get_bishop_moves(&self, moves: &mut Vec<Move>) {
+    fn get_bishop_moves(&self, moves: &mut MoveList) {
         let mut bishops = self.b.bitboards[(PieceType::Bishop as usize) + self.color_offset_idx as usize];
 
         while bishops != 0 {
@@ -346,7 +352,7 @@ impl Generator {
         }
     }
 
-    fn get_queen_moves(&self, moves: &mut Vec<Move>) {
+    fn get_queen_moves(&self, moves: &mut MoveList) {
         let mut queens = self.b.bitboards[(PieceType::Queen as usize) + self.color_offset_idx as usize];
 
         while queens != 0 {
@@ -386,7 +392,7 @@ impl Generator {
         }
     }
 
-    fn get_knight_moves(&self, moves: &mut Vec<Move>) {
+    fn get_knight_moves(&self, moves: &mut MoveList) {
         // for now just deal with the knights
         let mut knights = self.b.bitboards[(PieceType::Knight as usize) + self.color_offset_idx as usize];
 
@@ -408,7 +414,7 @@ impl Generator {
         }
     }
 
-    fn get_king_moves(&self, moves: &mut Vec<Move>) {
+    fn get_king_moves(&self, moves: &mut MoveList) {
         let king = self.b.bitboards[(PieceType::King as usize) + self.color_offset_idx as usize];
         let from_idx = king.trailing_zeros() as usize;
         let from: u64 = 1 << from_idx;
@@ -421,7 +427,7 @@ impl Generator {
         self.add_moves(moves, other_moves, from, PieceType::King);
     }
 
-    fn get_castling_moves(&self, moves: &mut Vec<Move>) {
+    fn get_castling_moves(&self, moves: &mut MoveList) {
         let king = self.b.bitboards[(PieceType::King as usize) + self.color_offset_idx as usize];
 
         match self.b.to_move {
@@ -549,7 +555,7 @@ impl Generator {
         self.can_castle(rights, free_squares, king_pawn_mask, knight_mask, slider_mask, offset)
     }
 
-    fn get_pawn_moves(&self, moves: &mut Vec<Move>) {
+    fn get_pawn_moves(&self, moves: &mut MoveList) {
         let mut pawns = self.b.bitboards[(PieceType::Pawn as usize) + self.color_offset_idx as usize];
 
         while pawns != 0 {

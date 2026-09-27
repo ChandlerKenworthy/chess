@@ -1,5 +1,5 @@
 use std::{debug_assert, ops::{Index, IndexMut}, println};
-use crate::generator::{Bitboard, Color, PieceType, bitboard::{BLACK_KS, BLACK_QS, CASTLING_RIGHTS_MASK, KINGSIDE_CASTLE_ROOK_XOR_DEST, QUEENSIDE_CASTLE_ROOK_XOR_DEST, STARTING_BOARD, WHITE_KS, WHITE_QS, north, south}, piece::Castling::{self, BlackKingside, BlackQueenside, WhiteKingside, WhiteQueenside}};
+use crate::generator::{Bitboard, Color, PieceType, bitboard::{BLACK_KS, BLACK_QS, CASTLING_RIGHTS_MASK, CASTLING_ROOK_XOR_DEST, STARTING_BOARD, WHITE_KS, WHITE_QS, north, south}, piece::Castling::{self}};
 use super::piece::Piece;
 use std::fmt;
 
@@ -104,21 +104,26 @@ impl Move {
         )
     }
 
+    #[inline(always)]
     pub fn is_double_pawn_push(&self) -> bool {
         (self.0 & Self::DOUBLE_PAWN_PUSH_FLAG) != 0
     }
 
+    #[inline(always)]
     pub fn is_capture(&self) -> bool {
         (self.0 & Self::IS_CAPTURE) != 0
     }
 
+    #[inline(always)]
     pub fn is_en_passant(&self) -> bool {
         (self.0 & Self::EN_PASSANT_FLAG) != 0
     }
 
+    #[inline(always)]
     pub fn is_castling(&self) -> bool {
         (self.0 & Self::IS_CASTLE_ANY) != 0
     }
+
 
     pub fn castling_is(&self) -> Option<Castling> {
         let castling = (self.0 >> 18) & 0xF;
@@ -131,10 +136,12 @@ impl Move {
         }
     }   
 
+    #[inline(always)]
     pub fn is_promotion(&self) -> bool {
         (self.0 & Self::IS_PROMOTION_ANY) != 0
     }
 
+    #[inline(always)]
     pub fn promotes_to(&self) -> Option<PieceType> {
         let promotion = (self.0 >> 22) & 0xF;
         match promotion {
@@ -165,27 +172,33 @@ impl Move {
         }
     }
 
+    #[inline(always)]
     pub fn from(&self) -> Bitboard {
         1 << ((self.0 >> Self::FROM_SHIFT) & Self::SQUARE_MASK)
     }
 
+    #[inline(always)]
     pub fn from_index(&self) -> u32 {
         (self.0 >> Self::FROM_SHIFT) & Self::SQUARE_MASK
     }
     
+    #[inline(always)]
     pub fn to(&self) -> Bitboard {
         1 << ((self.0 >> Self::TO_SHIFT) & Self::SQUARE_MASK)
     }
 
+    #[inline(always)]
     pub fn to_index(&self) -> u32 {
         (self.0 >> Self::TO_SHIFT) & Self::SQUARE_MASK
     }
 
+    #[inline(always)]
     pub fn piece(&self) -> PieceType {
         let piece = (self.0 >> Self::PIECE_TYPE_SHIFT) & Self::PIECE_TYPE_MASK;
         PieceType::try_from(piece).unwrap()
     }
 
+    #[inline(always)]
     pub fn captured_piece(&self) -> Option<PieceType> {
         let captured_piece = (self.0 >> Self::CAPTURED_PIECE_SHIFT) & Self::PIECE_TYPE_MASK;
         if captured_piece == 0 {
@@ -360,12 +373,9 @@ impl Board {
         } else if undo.mv.is_castling() {
             // Put the corresponding rook back to its original square
             if let Some(c) = undo.mv.castling_is() {
-                match c {
-                    WhiteKingside => self.bitboards[Piece::WhiteRook as usize] ^= KINGSIDE_CASTLE_ROOK_XOR_DEST[0],
-                    WhiteQueenside => self.bitboards[Piece::WhiteRook as usize] ^= QUEENSIDE_CASTLE_ROOK_XOR_DEST[0],
-                    BlackKingside => self.bitboards[Piece::BlackRook as usize] ^= KINGSIDE_CASTLE_ROOK_XOR_DEST[1],
-                    BlackQueenside => self.bitboards[Piece::BlackRook as usize] ^= QUEENSIDE_CASTLE_ROOK_XOR_DEST[1],
-                }
+
+                let rook_idx = PieceType::Rook as usize + offset;
+                self.bitboards[rook_idx] ^= CASTLING_ROOK_XOR_DEST[c as usize];
             }
         }
 
@@ -389,9 +399,9 @@ impl Board {
 
         let dest = mv.to();
 
-        let (bb_idx, color_offset) = match self.to_move {
-            Color::White => (mv.piece() as usize, 6), 
-            Color::Black => (mv.piece() as usize + 6, 0)
+        let (bb_idx, color_offset, self_color_offset, ep_pawn_idx) = match self.to_move {
+            Color::White => (mv.piece() as usize, 6, 0, Piece::BlackPawn as usize), 
+            Color::Black => (mv.piece() as usize + 6, 0, 6, Piece::WhitePawn as usize)
         };
 
         // move the target piece from the origin to the target square
@@ -404,13 +414,15 @@ impl Board {
         // pieces bitboard
         if mv.is_capture() {
             if mv.is_en_passant() { // Capturing an enemy pawn and we can easily work out where
-                match self.to_move {
-                    Color::White => self.bitboards[Piece::BlackPawn as usize] &= !south(dest),
-                    Color::Black => self.bitboards[Piece::WhitePawn as usize] &= !north(dest),
-                }
-            } else if let Some(captured_piece_type) = mv.captured_piece() {
-                let captured_idx = captured_piece_type as usize;
-                self.bitboards[captured_idx + color_offset] &= !dest;
+                let captured_pawn = if self.to_move == Color::White {
+                    south(dest)
+                } else {
+                    north(dest)
+                };
+                self.bitboards[ep_pawn_idx] &= !captured_pawn;
+            } else {
+                let captured_idx = mv.captured_piece().unwrap() as usize + color_offset;
+                self.bitboards[captured_idx] &= !dest;
             }
         }
 
@@ -422,35 +434,21 @@ impl Board {
         }
 
         if mv.is_promotion() {
-            // delete pawn from mv.to() (as already moved)
             // insert type of piece to be promotoed to at mv.to()
-            if let Some(promotion_piece_type) = mv.promotes_to() {
-                let promotion_idx = promotion_piece_type as usize;
+            let promotion_idx = mv.promotes_to().unwrap() as usize + self_color_offset;
+            self.bitboards[promotion_idx] |= dest;
 
-                match self.to_move {
-                    Color::White => {
-                        self.bitboards[promotion_idx] |= dest;
-                        self.bitboards[Piece::WhitePawn as usize] ^= dest;
-
-                    },
-                    Color::Black => {
-                        self.bitboards[promotion_idx + 6] |= dest;
-                        self.bitboards[Piece::BlackPawn as usize] ^= dest;
-                    }
-                }
-            }
+            // Delete pawn from mbv.to() (as already moved)
+            self.bitboards[bb_idx] &= !dest;
         }
 
         // Castling (move the rook)
         if mv.is_castling() {
             // King has already been moved
             if let Some(c) = mv.castling_is() {
-                match c {
-                    WhiteKingside  => self.bitboards[Piece::WhiteRook as usize] ^= KINGSIDE_CASTLE_ROOK_XOR_DEST[0],
-                    WhiteQueenside => self.bitboards[Piece::WhiteRook as usize] ^= QUEENSIDE_CASTLE_ROOK_XOR_DEST[0],
-                    BlackKingside  => self.bitboards[Piece::BlackRook as usize] ^= KINGSIDE_CASTLE_ROOK_XOR_DEST[1],
-                    BlackQueenside => self.bitboards[Piece::BlackRook as usize] ^= QUEENSIDE_CASTLE_ROOK_XOR_DEST[1],
-                }
+                // Either 0, 1, 2 or 3 so just index into the array of XOR masks to move the rook to its new square
+                let rook_idx = PieceType::Rook as usize + self_color_offset;
+                self.bitboards[rook_idx] ^= CASTLING_ROOK_XOR_DEST[c as usize];
             }
         }
 

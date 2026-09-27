@@ -1,7 +1,7 @@
 use std::ops::Not;
 
 #[repr(u8)]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Color {
     White = 0,
     Black = 1
@@ -21,10 +21,10 @@ impl Not for Color {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Castling {
-    WhiteQueenside,
-    WhiteKingside,
-    BlackQueenside,
-    BlackKingside
+    WhiteQueenside = 0,
+    WhiteKingside = 1,
+    BlackQueenside = 2,
+    BlackKingside = 3
 }
 
 #[repr(u8)]

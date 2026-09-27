@@ -224,8 +224,15 @@ pub const CASTLING_RIGHTS_MASK: [u8; 64] = {
 
 pub const KINGSIDE_CASTLE_KING_DEST: [Bitboard; 2] = [RANK_1 & FILE_G, RANK_8 & FILE_G];
 pub const QUEENSIDE_CASTLE_KING_DEST: [Bitboard; 2] = [RANK_1 & FILE_C, RANK_8 & FILE_C];
-pub const KINGSIDE_CASTLE_ROOK_XOR_DEST: [Bitboard; 2] = [RANK_1 & (FILE_H | FILE_F), RANK_8 & (FILE_H | FILE_F)];
-pub const QUEENSIDE_CASTLE_ROOK_XOR_DEST: [Bitboard; 2] = [RANK_1 & (FILE_A | FILE_D), RANK_8 & (FILE_A | FILE_D)];
+
+//pub const KINGSIDE_CASTLE_ROOK_XOR_DEST: [Bitboard; 2] = [RANK_1 & (FILE_H | FILE_F), RANK_8 & (FILE_H | FILE_F)];
+//pub const QUEENSIDE_CASTLE_ROOK_XOR_DEST: [Bitboard; 2] = [RANK_1 & (FILE_A | FILE_D), RANK_8 & (FILE_A | FILE_D)];
+pub const CASTLING_ROOK_XOR_DEST: [Bitboard; 4] = [
+    RANK_1 & (FILE_A | FILE_D), // White Queenside (i.e. Castling::WhiteQueenside = 0)
+    RANK_1 & (FILE_H | FILE_F), // White Kingside  (1)
+    RANK_8 & (FILE_A | FILE_D), // Black Queenside (2)
+    RANK_8 & (FILE_H | FILE_F), // Black Kingside (3)
+];
 
 pub const WHITE_KINGSIDE_FREE_SQUARES: Bitboard = RANK_1 & (FILE_F | FILE_G);
 pub const WHITE_QUEENSIDE_FREE_SQUARES: Bitboard = RANK_1 & (FILE_B | FILE_C | FILE_D);
