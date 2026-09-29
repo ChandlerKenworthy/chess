@@ -222,6 +222,10 @@ impl Square {
     pub const fn index(self) -> u8 {
         self.0
     }
+
+    pub fn bb(&self) -> Bitboard {
+        1u64 << self.0
+    }
 }
 
 // Chess convention uses lowercase square names (g1, c8, ...),
@@ -337,14 +341,9 @@ pub struct UndoState {
 
 impl Board {
     pub fn unmake_move(&mut self, undo: UndoState) {
-        // TODO: Instead of 12 x 64-bit copies, just pass the 32-bit move and undo it,
-        // so move the piece from to() to from(), and if it was a capture, put the captured piece back on to() etc.
-        // unless it was en-passant
-        // also deal with weird castling stuff i.e. putting pieces back in the right place
-        // remember now .to_move is the opposite colour so flip everything back to front
-
         // Put the piece that was moved back to its original square
         let piece = undo.mv.piece();
+        let to = undo.mv.to();
         let (offset, inverse_offset) = match undo.to_move {
             Color::White => (0, 6),
             Color::Black => (6, 0),
@@ -358,31 +357,26 @@ impl Board {
 
         if undo.mv.is_capture() {
             // Put the captured piece back at mv.to() (unless it was en-passant)
-            if undo.mv.is_en_passant() {
+            if !undo.mv.is_en_passant() {
+                // get the piece type that was captured and put it back at to()
+                self.bitboards[undo.mv.captured_piece().unwrap() as usize + inverse_offset] |= to;
+            } else {
                 // Put the captured pawn back on the square "behind" the pawn that moved
                 match undo.to_move {
-                    Color::White => self.bitboards[Piece::BlackPawn as usize] |= south(undo.mv.to()),
-                    Color::Black => self.bitboards[Piece::WhitePawn as usize] |= north(undo.mv.to()),
-                }
-            } else {
-                // get the piece type that was captured and put it back at to()
-                if let Some(captured_piece_type) = undo.mv.captured_piece() {
-                    self.bitboards[captured_piece_type as usize + inverse_offset] |= undo.mv.to();
+                    Color::White => self.bitboards[Piece::BlackPawn as usize] |= south(to),
+                    Color::Black => self.bitboards[Piece::WhitePawn as usize] |= north(to),
                 }
             }
         } else if undo.mv.is_castling() {
             // Put the corresponding rook back to its original square
-            if let Some(c) = undo.mv.castling_is() {
-
-                let rook_idx = PieceType::Rook as usize + offset;
-                self.bitboards[rook_idx] ^= CASTLING_ROOK_XOR_DEST[c as usize];
-            }
+            let rook_idx = PieceType::Rook as usize + offset;
+            self.bitboards[rook_idx] ^= CASTLING_ROOK_XOR_DEST[undo.mv.castling_is().unwrap() as usize];
         }
 
         // If move is a promotion, it identifies the piece type that was promoted to and deletes it from the
         // corresponding bitboard, otherwise defaults to the piece that was moved and deletes it
         let piece_type = undo.mv.promotes_to().unwrap_or(piece);
-        self.bitboards[piece_type as usize + offset] &= !undo.mv.to();
+        self.bitboards[piece_type as usize + offset] &= !to;
 
         self.to_move = undo.to_move;
         self.en_passant = undo.en_passant;
