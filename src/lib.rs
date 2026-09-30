@@ -1,5 +1,7 @@
 // Expose the generator module
 pub mod generator;
+pub mod engine;
+
 use crate::generator::{movegen::Generator};
 
 pub fn perft(generator: &mut Generator, depth: u32) -> u64 {
