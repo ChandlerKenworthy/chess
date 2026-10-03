@@ -1,3 +1,4 @@
+use chess::engine::evaluation::evalaute;
 use chess::generator::movegen::Generator;
 use chess::generator::{Board};
 use chess::{perft};
@@ -10,13 +11,14 @@ fn main() {
     //const POS: &str = "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8";
     
     let mut b = Board::from_fen(KIWIPETE).expect("Invalid FEN");
-    b.print();
 
     let mut eng = Engine::new(b);
-    let mv = eng.get_best_move(4);
+    let mv = eng.get_best_move(5);
 
     mv.print();
     println!();
+
+    println!("Static evaluation: {}", evalaute(&b));
 
 }
 

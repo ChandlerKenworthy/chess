@@ -1,10 +1,8 @@
-use crate::engine::evaluation::evalaute;
+use crate::engine::evaluation::{INFINITY, evalaute};
 use crate::generator::movegen::{Generator};
 use crate::generator::{Color, Move};
 
-const MATE_SCORE: i32 = 30_000;
-
-pub fn negamax(generator: &mut Generator, depth: i32) -> (i32, Option<Move>) {
+pub fn negamax(generator: &mut Generator, depth: i32, mut alpha: i32, beta: i32) -> (i32, Option<Move>) {
     if depth == 0 {
         let color = match generator.b.to_move {
             Color::White => 1,
@@ -16,12 +14,12 @@ pub fn negamax(generator: &mut Generator, depth: i32) -> (i32, Option<Move>) {
     // Generate all moves for this position
     let moves = generator.get_moves();
 
-    // 2. Terminal state handling (0 legal moves available)
+    // Terminal state handling (0 legal moves available)
     if moves.is_empty() {
         if generator.is_in_check(generator.b.to_move) {
             // Checkmate: Adjust mate score by depth so nearer mates score higher
             // Subtracting depth ensures quicker checkmates are preferred
-            return (-MATE_SCORE - depth, None);
+            return (-INFINITY - depth, None);
         } else {
             // Stalemate
             return (0, None);
@@ -29,11 +27,13 @@ pub fn negamax(generator: &mut Generator, depth: i32) -> (i32, Option<Move>) {
     }
 
     let mut best_move: Option<Move> = None;
-    let mut best_score = i32::MIN + 1;
+    let mut best_score = -INFINITY;
 
     for mv in moves {
         let undo = generator.b.make_move(mv);
-        let (score, _) = negamax(generator, depth - 1);
+        // For an explanation of Alpha-beta algorithm see:
+        // https://chessprogramming.org/Alpha-Beta
+        let (score, _) = negamax(generator, depth - 1, -beta, -alpha);
         let score = -score;
 
         generator.b.unmake_move(undo);
@@ -41,37 +41,16 @@ pub fn negamax(generator: &mut Generator, depth: i32) -> (i32, Option<Move>) {
             best_score = score;
             best_move = Some(mv);
         }
-    }
 
-    (best_score, best_move)
-}
+        // Update alpha (the best guaranteed score for the current player)
+        if best_score > alpha {
+            alpha = best_score;
+        }
 
-pub fn search(generator: &mut Generator) -> Option<Move> {
-    let moves = generator.get_moves();
-
-    let mut best_move = None;
-    let mut best_score = i32::MIN;
-    let color: i32 = match generator.b.to_move {
-        Color::White => 1,
-        Color::Black => -1
-    };
-
-    for mv in moves {
-        let undo = generator.b.make_move(mv);
-
-        // Score is always positive e.g. evaluate produces large -ve for good black position
-        // gets flipped here
-        let score = evalaute(&generator.b) * color;
-
-        generator.b.unmake_move(undo);
-
-        if score > best_score {
-            best_score = score;
-            best_move = Some(mv);
+        // Alpha-Beta Cutoff: opponent won't allow this branch
+        if alpha >= beta {
+            break;
         }
     }
-
-    println!("Best evaluation was: {}", best_score);
-
-    best_move
+    (best_score, best_move)
 }
