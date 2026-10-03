@@ -13,7 +13,7 @@ fn main() {
     b.print();
 
     let mut eng = Engine::new(b);
-    let mv = eng.get_best_move();
+    let mv = eng.get_best_move(4);
 
     mv.print();
     println!();

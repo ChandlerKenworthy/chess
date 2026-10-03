@@ -1,4 +1,4 @@
-use crate::generator::{Board, PieceType};
+use crate::generator::{Board};
 
 pub fn evalaute(board: &Board) -> i32 {
     let white = 0;
