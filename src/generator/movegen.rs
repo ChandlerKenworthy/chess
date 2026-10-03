@@ -125,7 +125,7 @@ impl Generator {
         Generator { b, color_offset_idx, oppn_color_offset_idx, self_occ: 0u64, not_self_occ: !0u64, oppn_occ: 0u64, total_occ: 0u64 }
     }
 
-    fn is_in_check(&self, color: Color) -> bool {
+    pub fn is_in_check(&self, color: Color) -> bool {
         let (king, offset, pawn_attack) = match color {
             Color::White => (
                 self.b.bitboards[Piece::WhiteKing as usize],

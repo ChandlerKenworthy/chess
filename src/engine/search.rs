@@ -2,6 +2,8 @@ use crate::engine::evaluation::evalaute;
 use crate::generator::movegen::{Generator};
 use crate::generator::{Color, Move};
 
+const MATE_SCORE: i32 = 30_000;
+
 pub fn negamax(generator: &mut Generator, depth: i32) -> (i32, Option<Move>) {
     if depth == 0 {
         let color = match generator.b.to_move {
@@ -14,8 +16,20 @@ pub fn negamax(generator: &mut Generator, depth: i32) -> (i32, Option<Move>) {
     // Generate all moves for this position
     let moves = generator.get_moves();
 
+    // 2. Terminal state handling (0 legal moves available)
+    if moves.is_empty() {
+        if generator.is_in_check(generator.b.to_move) {
+            // Checkmate: Adjust mate score by depth so nearer mates score higher
+            // Subtracting depth ensures quicker checkmates are preferred
+            return (-MATE_SCORE - depth, None);
+        } else {
+            // Stalemate
+            return (0, None);
+        }
+    }
+
     let mut best_move: Option<Move> = None;
-    let mut best_score = i32::MIN;
+    let mut best_score = i32::MIN + 1;
 
     for mv in moves {
         let undo = generator.b.make_move(mv);
