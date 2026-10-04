@@ -339,7 +339,26 @@ pub struct UndoState {
     pub castling_rights: u8,
 }
 
+const PHASE_WEIGHTS: [i32; 6] = [0, 1, 1, 2, 4, 0]; // P, N, B, R, Q, K
+const TOTAL_PHASE: i32 = 24; // 4*N + 4*B + 4*R + 2*Q = 4 + 4 + 8 + 8
+
 impl Board {
+    // Returns a value between 0.0 (opening) and 1.0 (endgame)
+    pub fn get_phase(&self) -> f32 {
+        // TODO: Store phase and just update in make/unmake saves recalculating every time
+        let mut material = 0;
+        for piece in 0..6 {
+            material += PHASE_WEIGHTS[piece]
+                * (self.bitboards[piece].count_ones() + self.bitboards[6 + piece].count_ones()) as i32;
+        }
+
+        // Promotions can push material above the starting total
+        let material = material.min(TOTAL_PHASE);
+
+        // 0.0 = opening (all material), 1.0 = endgame (bare kings/pawns)
+        (TOTAL_PHASE - material) as f32 / TOTAL_PHASE as f32
+    }
+
     pub fn unmake_move(&mut self, undo: UndoState) {
         // Put the piece that was moved back to its original square
         let piece = undo.mv.piece();

@@ -1,14 +1,14 @@
-use crate::engine::evaluation::{INFINITY, evalaute};
+use crate::engine::evaluation::{INFINITY, evaluate};
 use crate::generator::movegen::{Generator};
 use crate::generator::{Color, Move};
 
-pub fn negamax(generator: &mut Generator, depth: i32, mut alpha: i32, beta: i32) -> (i32, Option<Move>) {
+pub fn negamax(generator: &mut Generator, depth: i32, mut alpha: f32, beta: f32) -> (f32, Option<Move>) {
     if depth == 0 {
         let color = match generator.b.to_move {
             Color::White => 1,
             Color::Black => -1,
         };
-        return (color * evalaute(&generator.b), None);
+        return (color as f32 * evaluate(&generator.b), None);
     }
 
     // Generate all moves for this position
@@ -19,15 +19,15 @@ pub fn negamax(generator: &mut Generator, depth: i32, mut alpha: i32, beta: i32)
         if generator.is_in_check(generator.b.to_move) {
             // Checkmate: Adjust mate score by depth so nearer mates score higher
             // Subtracting depth ensures quicker checkmates are preferred
-            return (-INFINITY - depth, None);
+            return ((-INFINITY - depth) as f32, None);
         } else {
             // Stalemate
-            return (0, None);
+            return (0.0, None);
         }
     }
 
     let mut best_move: Option<Move> = None;
-    let mut best_score = -INFINITY;
+    let mut best_score = -INFINITY as f32;
 
     for mv in moves {
         let undo = generator.b.make_move(mv);
