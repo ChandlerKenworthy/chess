@@ -328,6 +328,7 @@ pub struct Board {
     pub to_move: Color,
     pub en_passant: Bitboard, // the square a pawn may move to on the next move completing an en-passant capture (empty if not available)
     pub castling_rights: u8, // [White QS][White KS][Black QS][Black KS][----]
+    pub phase: f32,
 }
 
 pub struct UndoState {
@@ -337,6 +338,7 @@ pub struct UndoState {
     pub to_move: Color,
     pub en_passant: Bitboard,
     pub castling_rights: u8,
+    pub phase: f32,
 }
 
 const PHASE_WEIGHTS: [i32; 6] = [0, 1, 1, 2, 4, 0]; // P, N, B, R, Q, K
@@ -359,6 +361,20 @@ impl Board {
         (TOTAL_PHASE - material) as f32 / TOTAL_PHASE as f32
     }
 
+    fn remove_phase_material(&mut self, piece: PieceType) {
+        let material_curr = (TOTAL_PHASE as f32) - (self.phase * TOTAL_PHASE as f32);
+        let mut material_new = material_curr - PHASE_WEIGHTS[piece as usize] as f32;
+        material_new = material_new.min(TOTAL_PHASE as f32);
+        self.phase = (TOTAL_PHASE as f32 - material_new) as f32 / TOTAL_PHASE as f32
+    }
+
+    fn add_phase_material(&mut self, piece: PieceType) {
+        let material_curr = (TOTAL_PHASE as f32) - (self.phase * TOTAL_PHASE as f32);
+        let mut material_new = material_curr + PHASE_WEIGHTS[piece as usize] as f32;
+        material_new = material_new.min(TOTAL_PHASE as f32);
+        self.phase = (TOTAL_PHASE as f32 - material_new) as f32 / TOTAL_PHASE as f32
+    }
+
     pub fn unmake_move(&mut self, undo: UndoState) {
         // Put the piece that was moved back to its original square
         let piece = undo.mv.piece();
@@ -378,13 +394,16 @@ impl Board {
             // Put the captured piece back at mv.to() (unless it was en-passant)
             if !undo.mv.is_en_passant() {
                 // get the piece type that was captured and put it back at to()
-                self.bitboards[undo.mv.captured_piece().unwrap() as usize + inverse_offset] |= to;
+                let captured_piece_type = undo.mv.captured_piece().unwrap();
+                self.bitboards[captured_piece_type as usize + inverse_offset] |= to;
+                self.add_phase_material(captured_piece_type);
             } else {
                 // Put the captured pawn back on the square "behind" the pawn that moved
                 match undo.to_move {
                     Color::White => self.bitboards[Piece::BlackPawn as usize] |= south(to),
                     Color::Black => self.bitboards[Piece::WhitePawn as usize] |= north(to),
                 }
+                self.add_phase_material(PieceType::Pawn);
             }
         } else if undo.mv.is_castling() {
             // Put the corresponding rook back to its original square
@@ -397,6 +416,11 @@ impl Board {
         let piece_type = undo.mv.promotes_to().unwrap_or(piece);
         self.bitboards[piece_type as usize + offset] &= !to;
 
+        if undo.mv.is_promotion() {
+            self.add_phase_material(PieceType::Pawn);
+            self.remove_phase_material(piece_type);
+        }
+
         self.to_move = undo.to_move;
         self.en_passant = undo.en_passant;
         self.castling_rights = undo.castling_rights;
@@ -408,6 +432,7 @@ impl Board {
             to_move: self.to_move,
             en_passant: self.en_passant,
             castling_rights: self.castling_rights,
+            phase: self.phase
         };
 
         let dest = mv.to();
@@ -433,8 +458,14 @@ impl Board {
                     north(dest)
                 };
                 self.bitboards[ep_pawn_idx] &= !captured_pawn;
+                
+                // Update the phase to remove a pawn
+                self.remove_phase_material(PieceType::Pawn);
+
             } else {
-                let captured_idx = mv.captured_piece().unwrap() as usize + color_offset;
+                let captured_piece = mv.captured_piece().unwrap();
+                let captured_idx = captured_piece as usize + color_offset;
+                self.remove_phase_material(captured_piece);
                 self.bitboards[captured_idx] &= !dest;
             }
         }
@@ -448,11 +479,15 @@ impl Board {
 
         if mv.is_promotion() {
             // insert type of piece to be promotoed to at mv.to()
-            let promotion_idx = mv.promotes_to().unwrap() as usize + self_color_offset;
+            let promotion_piece_type = mv.promotes_to().unwrap();
+            let promotion_idx = promotion_piece_type as usize + self_color_offset;
             self.bitboards[promotion_idx] |= dest;
 
             // Delete pawn from mbv.to() (as already moved)
             self.bitboards[bb_idx] &= !dest;
+
+            self.remove_phase_material(PieceType::Pawn);
+            self.add_phase_material(promotion_piece_type);
         }
 
         // Castling (move the rook)
@@ -500,7 +535,13 @@ impl Board {
     }
 
     pub fn new() -> Self {
-        Board { bitboards: STARTING_BOARD, to_move: Color::White, en_passant: 0u64, castling_rights: 0b11110000 }
+        Board { 
+            bitboards: STARTING_BOARD, 
+            to_move: Color::White, 
+            en_passant: 0u64, 
+            castling_rights: 0b11110000,
+            phase: 0.0
+        }
     }
 
     pub fn from_fen(fen: &str) -> Option<Self> {
@@ -570,7 +611,10 @@ impl Board {
             1u64 << (r * 8 + f)
         };
 
-        Some(Board { bitboards: bbs, to_move, en_passant, castling_rights })
+        let mut b = Board { bitboards: bbs, to_move, en_passant, castling_rights, phase: 0.0 };
+        b.phase = b.get_phase();
+
+        Some(b)
     }
 
     pub fn total_occupancy(&self) -> Bitboard {

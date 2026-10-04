@@ -1,4 +1,3 @@
-use chess::engine::evaluation::evaluate;
 use chess::generator::{Board};
 use chess::engine::{Engine};
 

@@ -12,23 +12,35 @@ pub fn evaluate(board: &Board) -> f32 {
     for piece in 0..6 {
         // White
         let mut bb = board.bitboards[piece];
+        let mut piece_value: [i32; 2] = [0; 2];
+        let mut pst_value: [i32; 2] = [0; 2];
+
         while bb != 0 {
             let sq = bb.trailing_zeros() as usize;
-            let piece_value = MG_VALUES[piece] as f32 * mphase + EG_VALUES[piece] as f32 * phase;
-            let pst_value = MG_PST[piece][sq ^ 56] as f32 * mphase + EG_PST[piece][sq ^ 56] as f32 * phase;
-            score += piece_value + pst_value;
+            piece_value[0] += MG_VALUES[piece];
+            piece_value[1] += EG_VALUES[piece];
+
+            pst_value[0] += MG_PST[piece][sq ^ 56];
+            pst_value[1] += EG_PST[piece][sq ^ 56];
+            
             bb &= bb - 1; // Clear the least significant bit
         }
+        score += (piece_value[0] as f32 * mphase + piece_value[1] as f32 * phase) + (pst_value[0] as f32 * mphase + pst_value[1] as f32 * phase);
+
+        let mut piece_value: [i32; 2] = [0; 2];
+        let mut pst_value: [i32; 2] = [0; 2];
 
         // Black (mirror the square vertically)
         let mut bb = board.bitboards[6 + piece];
         while bb != 0 {
             let sq = bb.trailing_zeros() as usize;
-            let piece_value = MG_VALUES[piece] as f32 * mphase + EG_VALUES[piece] as f32 * phase;
-            let pst_value = MG_PST[piece][sq] as f32 * mphase + EG_PST[piece][sq] as f32 * phase;
-            score -= (piece_value + pst_value).abs();
+            piece_value[0] += MG_VALUES[piece];
+            piece_value[1] += EG_VALUES[piece];
+            pst_value[0] += MG_PST[piece][sq];
+            pst_value[1] += EG_PST[piece][sq];
             bb &= bb - 1; // Clear the least significant bit
         }
+        score -= ((piece_value[0] as f32 * mphase + piece_value[1] as f32 * phase) + (pst_value[0] as f32 * mphase + pst_value[1] as f32 * phase)).abs();
     }
 
     score
