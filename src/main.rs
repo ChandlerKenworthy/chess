@@ -1,5 +1,6 @@
 use chess::generator::{Board};
 use chess::engine::{Engine};
+use std::time::Instant;
 
 fn main() {
 
@@ -7,12 +8,18 @@ fn main() {
     //const POS: &str = "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8";
     
     let b = Board::from_fen(KIWIPETE).expect("Invalid FEN");
+    b.print();
+
+    let start = Instant::now();
 
     let mut eng = Engine::new(b);
-    let mv = eng.get_best_move(4);
+    let mv = eng.get_best_move(5);
+
+    let duration = start.elapsed();
 
     mv.print();
     println!();
+    println!("Search completed in: {:?} ms", duration.as_millis());
 
 }
 
