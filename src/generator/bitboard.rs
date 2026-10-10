@@ -2,6 +2,9 @@ use crate::generator::Square;
 
 pub type Bitboard = u64; // Bitboards are unsigned 64-bit integers
 
+// FEN strings for testing
+pub const KIWIPETE: &str = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq -";
+
 pub fn print_bitboard(bb: Bitboard) {
     for rank in (0..8).rev() {
         print!("{} ", rank + 1);

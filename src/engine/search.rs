@@ -9,7 +9,7 @@ const CAPTURE_SCORE: i32 = 10_000;
 const PIECE_VALUES: [i32; 6] = [100, 320, 330, 500, 900, 20_000];
 
 // TODO: Should this live here or in evaluation or somewhere else?
-fn score_move(mv: Move, g: &Generator) -> i32 {
+fn score_move(mv: Move) -> i32 {
     // TODO: This can be made simpler by simply having an exhaustive list
     // of the bits in certain positions of the move to get a score
     // as it is independent of the side
@@ -36,9 +36,9 @@ fn score_move(mv: Move, g: &Generator) -> i32 {
     score
 }
 
-fn order_moves(moves: &mut MoveList, g: &Generator) {
+fn order_moves(moves: &mut MoveList) {
     // Order moves with the highest score first so alpha-beta prunes them quickly
-    moves.sort_by_key(|&mv| Reverse(score_move(mv, g)));
+    moves.sort_by_key(|&mv| Reverse(score_move(mv)));
 }
 
 pub fn negamax(generator: &mut Generator, depth: i32, mut alpha: f32, beta: f32) -> (f32, Option<Move>) {
@@ -55,7 +55,7 @@ pub fn negamax(generator: &mut Generator, depth: i32, mut alpha: f32, beta: f32)
     
     // If depth > 1, order the moves to prune faster
     if depth > 1 {    
-        order_moves(&mut moves, generator);
+        order_moves(&mut moves);
     }
 
     // Terminal state handling (0 legal moves available)
