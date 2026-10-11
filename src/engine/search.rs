@@ -8,7 +8,6 @@ const CAPTURE_SCORE: i32 = 10_000;
 // Pawn, knight, bishop, rook, queen, king
 const PIECE_VALUES: [i32; 6] = [100, 320, 330, 500, 900, 20_000];
 
-// TODO: Should this live here or in evaluation or somewhere else?
 fn score_move(mv: Move) -> i32 {
     // TODO: This can be made simpler by simply having an exhaustive list
     // of the bits in certain positions of the move to get a score
@@ -16,15 +15,10 @@ fn score_move(mv: Move) -> i32 {
 
     let mut score = 0;
 
-    if mv.is_capture() {
-        // MVV-LVA: prefer valuable victims and cheap attakers
-        // e.g. pawns capturing queens is very good
-
-        // If no piece then move must have been an en-passant
-        let victim = mv.captured_piece().unwrap_or(PieceType::Pawn);
-
-        // TODO: Cleanup via an if-let
-        score += CAPTURE_SCORE
+    // MVV-LVA: prefer valuable victims and cheap attakers
+    // e.g. pawns capturing queens is very good
+    if let Some(victim) = mv.captured_piece() {
+         score += CAPTURE_SCORE
             + 10 * PIECE_VALUES[victim as usize]
             - PIECE_VALUES[mv.piece() as usize];
     }

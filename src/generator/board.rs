@@ -1,214 +1,7 @@
 use std::{debug_assert, ops::{Index, IndexMut}, println};
-use crate::generator::{Bitboard, Color, PieceType, bitboard::{BLACK_KS, BLACK_QS, CASTLING_RIGHTS_MASK, CASTLING_ROOK_XOR_DEST, STARTING_BOARD, WHITE_KS, WHITE_QS, north, south}, piece::Castling::{self}};
+use crate::generator::{Move, Bitboard, Color, PieceType, bitboard::{BLACK_KS, BLACK_QS, CASTLING_RIGHTS_MASK, CASTLING_ROOK_XOR_DEST, STARTING_BOARD, WHITE_KS, WHITE_QS, north, south}, Castling};
 use super::piece::Piece;
 use std::fmt;
-
-#[derive(Copy, Clone)]
-pub struct Move(u32); // A tuple struct
-// Move word: [0.....5][6....11][12.....14][flags]
-//            from_idx  to_idx   piece_type
-// flags description:
-// 15: en-passant move? 1 : 0
-// 16: double pawn push? 1 : 0
-// 17: Was capturing move? 1 : 0
-// 18: Is castling Q.S White? 1 : 0
-// 19: Is castling K.S White? 1 : 0
-// 20: Is castling Q.S Black? 1 : 0
-// 21: Is castling K.S Black? 1 : 0
-// 22: promotion [Q]
-// 23: promotion [R]
-// 24: promotion [N]
-// 25: promotion [B]
-// [26..28]: Captured piece type (or zero for none)
-
-impl fmt::Binary for Move {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Formats the underlying u32 using standard binary formatting
-        fmt::Binary::fmt(&self.0, f)
-    }
-}
-
-impl Move {
-    const FROM_SHIFT: u32 = 0;
-    const TO_SHIFT: u32 = 6;
-    const PIECE_TYPE_SHIFT: u32 = 12;
-    const SQUARE_MASK: u32 = 0b111111;
-    const PIECE_TYPE_MASK: u32 = 0b111;
-
-    const EN_PASSANT_FLAG: u32 = 1 << 15;
-    const DOUBLE_PAWN_PUSH_FLAG: u32 = 1 << 16;
-    const IS_CAPTURE: u32 = 1 << 17;
-    //const IS_CASTLE_QS_WHITE: u32 = 1 << 18;
-    //const IS_CASTLE_KS_WHITE: u32 = 1 << 19;
-    //const IS_CASTLE_QS_BLACK: u32 = 1 << 20;
-    //const IS_CASTLE_KS_BLACK: u32 = 1 << 21;
-    const IS_CASTLE_ANY: u32 = (1 << 18) | (1 << 19) | (1 << 20) | (1 << 21);
-    //const IS_PROMOTION_QUEEN: u32 = 1 << 22;
-    //const IS_PROMOTION_ROOK: u32  = 1 << 23;
-    //const IS_PROMOTION_KNIGHT: u32 = 1 << 24;
-    //const IS_PROMOTION_BISHOP: u32 = 1 << 25;
-    const IS_PROMOTION_ANY: u32 = (1 << 22) | (1 << 23) | (1 << 24) | (1 << 25);
-    const CAPTURED_PIECE_SHIFT: u32 = 26;
-
-    pub fn new(from: Bitboard, to: Bitboard, origin_piece: PieceType) -> Self {
-        // If using u8 could do e.g. debug_assert!(from < 64) etc.
-        let from: u32 = from.trailing_zeros();
-        let to: u32 = to.trailing_zeros();
-
-        Self(
-            ((from) << Self::FROM_SHIFT) 
-            | ((to) << Self::TO_SHIFT)
-            | ((origin_piece as u32) << Self::PIECE_TYPE_SHIFT)
-        )
-    }
-
-    pub fn new_capture(from: Bitboard, to: Bitboard, origin_piece: PieceType, captured: PieceType) -> Self {
-        let from: u32 = from.trailing_zeros();
-        let to: u32 = to.trailing_zeros();
-
-        Self(
-            ((from) << Self::FROM_SHIFT) 
-            | ((to) << Self::TO_SHIFT)
-            | ((origin_piece as u32) << Self::PIECE_TYPE_SHIFT)
-            | Self::IS_CAPTURE
-            | (((captured as u32) + 1) << Self::CAPTURED_PIECE_SHIFT)
-        )
-    }
-
-    pub fn new_capture_with_flags(from: Bitboard, to: Bitboard, origin_piece: PieceType, captured: PieceType, flags: u32) -> Self {
-        let from: u32 = from.trailing_zeros();
-        let to: u32 = to.trailing_zeros();
-
-        Self(
-            ((from) << Self::FROM_SHIFT) 
-            | ((to) << Self::TO_SHIFT)
-            | ((origin_piece as u32) << Self::PIECE_TYPE_SHIFT)
-            | Self::IS_CAPTURE
-            | (((captured as u32) + 1) << Self::CAPTURED_PIECE_SHIFT)
-            | flags
-        )
-    }
-
-    pub fn new_with_flags(from: Bitboard, to: Bitboard, origin_piece: PieceType, mut flags: u32) -> Self {
-        // Zero-out bits [0..14] in case something went wrong
-        flags &= !0x7FFF;
-
-        let from: u32 = from.trailing_zeros();
-        let to: u32 = to.trailing_zeros();
-
-        Self(
-            ((from) << Self::FROM_SHIFT) 
-            | ((to) << Self::TO_SHIFT)
-            | ((origin_piece as u32) << Self::PIECE_TYPE_SHIFT)
-            | flags
-        )
-    }
-
-    #[inline(always)]
-    pub fn is_double_pawn_push(&self) -> bool {
-        (self.0 & Self::DOUBLE_PAWN_PUSH_FLAG) != 0
-    }
-
-    #[inline(always)]
-    pub fn is_capture(&self) -> bool {
-        (self.0 & Self::IS_CAPTURE) != 0
-    }
-
-    #[inline(always)]
-    pub fn is_en_passant(&self) -> bool {
-        (self.0 & Self::EN_PASSANT_FLAG) != 0
-    }
-
-    #[inline(always)]
-    pub fn is_castling(&self) -> bool {
-        (self.0 & Self::IS_CASTLE_ANY) != 0
-    }
-
-
-    pub fn castling_is(&self) -> Option<Castling> {
-        let castling = (self.0 >> 18) & 0xF;
-        match castling {
-            1 => Some(Castling::WhiteQueenside), // Bit 18 (0b0001)
-            2 => Some(Castling::WhiteKingside),  // Bit 19 (0b0010)
-            4 => Some(Castling::BlackQueenside), // Bit 20 (0b0100)
-            8 => Some(Castling::BlackKingside),  // Bit 21 (0b1000)
-            _ => None,
-        }
-    }   
-
-    #[inline(always)]
-    pub fn is_promotion(&self) -> bool {
-        (self.0 & Self::IS_PROMOTION_ANY) != 0
-    }
-
-    #[inline(always)]
-    pub fn promotes_to(&self) -> Option<PieceType> {
-        let promotion = (self.0 >> 22) & 0xF;
-        match promotion {
-            1 => Some(PieceType::Queen),
-            2 => Some(PieceType::Rook),
-            4 => Some(PieceType::Knight),
-            8 => Some(PieceType::Bishop),
-            _ => None,
-        }
-    }
-
-    pub fn print(self) {
-        // Get the Square of from and to and print it
-        let from: Square = Square::new(self.from_index());
-        let to: Square = Square::new(self.to_index());
-        if self.is_promotion() {
-            if let Some(promotes_to) = self.promotes_to() {
-                match promotes_to {
-                    PieceType::Queen => print!("{from}{to}q"),
-                    PieceType::Rook => print!("{from}{to}r"),
-                    PieceType::Knight => print!("{from}{to}n"),
-                    PieceType::Bishop => print!("{from}{to}b"),
-                    _ => print!("{from}{to}"), // Should not happen
-                }
-            }
-        } else {
-            print!("{from}{to}"); 
-        }
-    }
-
-    #[inline(always)]
-    pub fn from(&self) -> Bitboard {
-        1 << ((self.0 >> Self::FROM_SHIFT) & Self::SQUARE_MASK)
-    }
-
-    #[inline(always)]
-    pub fn from_index(&self) -> u32 {
-        (self.0 >> Self::FROM_SHIFT) & Self::SQUARE_MASK
-    }
-    
-    #[inline(always)]
-    pub fn to(&self) -> Bitboard {
-        1 << ((self.0 >> Self::TO_SHIFT) & Self::SQUARE_MASK)
-    }
-
-    #[inline(always)]
-    pub fn to_index(&self) -> u32 {
-        (self.0 >> Self::TO_SHIFT) & Self::SQUARE_MASK
-    }
-
-    #[inline(always)]
-    pub fn piece(&self) -> PieceType {
-        let piece = (self.0 >> Self::PIECE_TYPE_SHIFT) & Self::PIECE_TYPE_MASK;
-        PieceType::try_from(piece).unwrap()
-    }
-
-    #[inline(always)]
-    pub fn captured_piece(&self) -> Option<PieceType> {
-        let captured_piece = (self.0 >> Self::CAPTURED_PIECE_SHIFT) & Self::PIECE_TYPE_MASK;
-        if captured_piece == 0 {
-            None
-        } else {
-            Some(PieceType::try_from(captured_piece - 1).unwrap())
-        }
-    }
-
-}
 
 #[derive(Copy, Clone, Debug)]
 pub struct Square(pub u8);
@@ -390,7 +183,26 @@ impl Board {
         // Place the piece that was moved back at from
         self.bitboards[piece as usize + offset] |= undo.mv.from();
 
-        if undo.mv.is_capture() {
+        if let Some(captured_piece_type) = undo.mv.captured_piece() {
+            if undo.mv.is_en_passant() {
+                // Put the captured pawn back on the square "behind" the pawn that moved
+                match undo.to_move {
+                    Color::White => self.bitboards[Piece::BlackPawn as usize] |= south(to),
+                    Color::Black => self.bitboards[Piece::WhitePawn as usize] |= north(to),
+                }
+                self.add_phase_material(PieceType::Pawn);
+            } else {
+                // get the piece type that was captured and put it back at to()
+                self.bitboards[captured_piece_type as usize + inverse_offset] |= to;
+                self.add_phase_material(captured_piece_type);
+            }
+        } else if let Some(castling_type) = undo.mv.castling_is() {
+            // Put the corresponding rook back to its original square
+            let rook_idx = PieceType::Rook as usize + offset;
+            self.bitboards[rook_idx] ^= CASTLING_ROOK_XOR_DEST[castling_type as usize];
+        }
+
+        /* if undo.mv.is_capture() {
             // Put the captured piece back at mv.to() (unless it was en-passant)
             if !undo.mv.is_en_passant() {
                 // get the piece type that was captured and put it back at to()
@@ -409,7 +221,7 @@ impl Board {
             // Put the corresponding rook back to its original square
             let rook_idx = PieceType::Rook as usize + offset;
             self.bitboards[rook_idx] ^= CASTLING_ROOK_XOR_DEST[undo.mv.castling_is().unwrap() as usize];
-        }
+        } */
 
         // If move is a promotion, it identifies the piece type that was promoted to and deletes it from the
         // corresponding bitboard, otherwise defaults to the piece that was moved and deletes it
@@ -477,9 +289,7 @@ impl Board {
             };
         }
 
-        if mv.is_promotion() {
-            // insert type of piece to be promotoed to at mv.to()
-            let promotion_piece_type = mv.promotes_to().unwrap();
+        if let Some(promotion_piece_type) = mv.promotes_to() {
             let promotion_idx = promotion_piece_type as usize + self_color_offset;
             self.bitboards[promotion_idx] |= dest;
 
@@ -490,14 +300,11 @@ impl Board {
             self.add_phase_material(promotion_piece_type);
         }
 
-        // Castling (move the rook)
-        if mv.is_castling() {
-            // King has already been moved
-            if let Some(c) = mv.castling_is() {
-                // Either 0, 1, 2 or 3 so just index into the array of XOR masks to move the rook to its new square
-                let rook_idx = PieceType::Rook as usize + self_color_offset;
-                self.bitboards[rook_idx] ^= CASTLING_ROOK_XOR_DEST[c as usize];
-            }
+        // Castling (move the rook) - King has already been moved
+        if let Some(c) = mv.castling_is() {
+            // Either 0, 1, 2 or 3 so just index into the array of XOR masks to move the rook to its new square
+            let rook_idx = PieceType::Rook as usize + self_color_offset;
+            self.bitboards[rook_idx] ^= CASTLING_ROOK_XOR_DEST[c as usize];
         }
 
         // Update castling rights

@@ -1,6 +1,6 @@
 use crate::generator::{Bitboard, Board, Color, Move, Piece, PieceType, bitboard::{
     BLACK_KINGSIDE_ATTACKS_KING_OR_PAWN, BLACK_KINGSIDE_ATTACKS_KNIGHT, BLACK_KINGSIDE_FREE_SQUARES, BLACK_KINGSIDE_SLIDER_ATTACKS, BLACK_QUEENSIDE_ATTACKS_KING_OR_PAWN, BLACK_QUEENSIDE_ATTACKS_KNIGHT, BLACK_QUEENSIDE_FREE_SQUARES, BLACK_QUEENSIDE_SLIDER_ATTACKS, KINGSIDE_CASTLE_KING_DEST, PRIMARY_DIAGONAL_RAYS, PRIMARY_STRAIGHT_RAYS, PROMOTE_BISHOP_AND_CAPTURE, PROMOTE_KNIGHT_AND_CAPTURE, PROMOTE_QUEEN_AND_CAPTURE, PROMOTE_ROOK_AND_CAPTURE, QUEENSIDE_CASTLE_KING_DEST, RANK_1, RANK_3, RANK_6, RANK_8, REVERSE_SQUARE_BB, SECONDARY_DIAGONAL_RAYS, SECONDARY_STRAIGHT_RAYS, WHITE_KINGSIDE_ATTACKS_KING_OR_PAWN, WHITE_KINGSIDE_ATTACKS_KNIGHT, WHITE_KINGSIDE_FREE_SQUARES, WHITE_KINGSIDE_SLIDER_ATTACKS, WHITE_QUEENSIDE_ATTACKS_KING_OR_PAWN, WHITE_QUEENSIDE_ATTACKS_KNIGHT, WHITE_QUEENSIDE_FREE_SQUARES, WHITE_QUEENSIDE_SLIDER_ATTACKS, east, north, south, west
-}, piece::Castling};
+}, game_move::EN_PASSANT_FLAG, piece::Castling};
 use arrayvec::ArrayVec;
 
 pub type MoveList = ArrayVec<Move, 256>;
@@ -199,8 +199,6 @@ impl Generator {
         self.oppn_occ = self.b.occupancy(!self.b.to_move);
         self.total_occ = self.self_occ | self.oppn_occ;
 
-        // pawn moves single, double on first (if both clear), en-passant
-        // king moves do not incl. castling yet
         self.get_king_moves(&mut move_list);
         self.get_castling_moves(&mut move_list);
         self.get_knight_moves(&mut move_list);
@@ -644,12 +642,13 @@ impl Generator {
 
                 if is_valid_ep {
                     moves.push(
-                        Move::new_with_flags(
-                            from, 
-                            self.b.en_passant, 
-                            PieceType::Pawn, 
-                            0x28000
-                        ));
+                        Move::new_capture_with_flags(
+                        from,
+                        self.b.en_passant,
+                        PieceType::Pawn,
+                        PieceType::Pawn,
+                        EN_PASSANT_FLAG
+                    ));
                 }
             }
 
