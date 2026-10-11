@@ -605,8 +605,7 @@ impl Generator {
                 Color::White => (north(east(from)) | north(west(from))) & self.oppn_occ,
                 Color::Black => (south(east(from)) | south(west(from))) & self.oppn_occ
             };
-            //print!("Diagonal pawn attacks!\n");
-            //print_bitboard(mvs);
+
             // Flags are awkward here as could change e.g. all attacks, but could also
             // be a promotion!
             let mut attack_mv_promotion = match self.b.to_move {

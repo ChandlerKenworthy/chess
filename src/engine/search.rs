@@ -1,6 +1,45 @@
 use crate::engine::evaluation::{INFINITY, evaluate};
-use crate::generator::movegen::{Generator};
-use crate::generator::{Color, Move};
+use crate::generator::movegen::{Generator, MoveList};
+use crate::generator::{Color, Move, PieceType};
+use std::cmp::Reverse;
+
+const PROMOTION_SCORE: i32 = 100_000;
+const CAPTURE_SCORE: i32 = 10_000;
+// Pawn, knight, bishop, rook, queen, king
+const PIECE_VALUES: [i32; 6] = [100, 320, 330, 500, 900, 20_000];
+
+// TODO: Should this live here or in evaluation or somewhere else?
+fn score_move(mv: Move) -> i32 {
+    // TODO: This can be made simpler by simply having an exhaustive list
+    // of the bits in certain positions of the move to get a score
+    // as it is independent of the side
+
+    let mut score = 0;
+
+    if mv.is_capture() {
+        // MVV-LVA: prefer valuable victims and cheap attakers
+        // e.g. pawns capturing queens is very good
+
+        // If no piece then move must have been an en-passant
+        let victim = mv.captured_piece().unwrap_or(PieceType::Pawn);
+
+        // TODO: Cleanup via an if-let
+        score += CAPTURE_SCORE
+            + 10 * PIECE_VALUES[victim as usize]
+            - PIECE_VALUES[mv.piece() as usize];
+    }
+
+    if mv.is_promotion() {
+        score += PROMOTION_SCORE;
+    }
+
+    score
+}
+
+fn order_moves(moves: &mut MoveList) {
+    // Order moves with the highest score first so alpha-beta prunes them quickly
+    moves.sort_by_key(|&mv| Reverse(score_move(mv)));
+}
 
 pub fn negamax(generator: &mut Generator, depth: i32, mut alpha: f32, beta: f32) -> (f32, Option<Move>) {
     if depth == 0 {
@@ -12,7 +51,12 @@ pub fn negamax(generator: &mut Generator, depth: i32, mut alpha: f32, beta: f32)
     }
 
     // Generate all moves for this position
-    let moves = generator.get_moves();
+    let mut moves = generator.get_moves();
+    
+    // If depth > 1, order the moves to prune faster
+    if depth > 1 {    
+        order_moves(&mut moves);
+    }
 
     // Terminal state handling (0 legal moves available)
     if moves.is_empty() {

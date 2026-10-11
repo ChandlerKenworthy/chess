@@ -19,16 +19,16 @@ impl Engine {
     }
 
     pub fn get_best_move(&mut self, depth: i32) -> Move {
-        let (score, mv) = negamax(&mut self.generator, depth, -INFINITY as f32, INFINITY as f32);
+        let (_, mv) = negamax(&mut self.generator, depth, -INFINITY as f32, INFINITY as f32);
 
         // Format the score nicely
-        let score = if score >= 0.0 {
-            format!("+{:.1}", score / 100.0)
-        } else {
-            format!("-{:.1}", -score / 100.0)
-        };
+        //let score = if score >= 0.0 {
+        //    format!("+{:.1}", score / 100.0)
+        //} else {
+        //    format!("-{:.1}", -score / 100.0)
+        //};
 
-        println!("Evaluation: {}", score);
+        //println!("Evaluation: {}", score);
         mv.expect("No available moves")
         
     }
