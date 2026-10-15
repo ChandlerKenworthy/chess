@@ -1,16 +1,4 @@
-[package]
-name = "chess"
-version = "0.1.0"
-edition = "2024"
 
-[dependencies]
-arrayvec = "0.7.8"
-criterion = "0.8.2"
-
-[profile.release]
-codegen-units = 1
-lto = "fat"
-
-[[bench]]
-name = "engine_bench"
-harness = false
+[workspace]
+members = ["engine", "backend"]
+resolver = "3"

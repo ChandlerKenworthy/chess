@@ -1,5 +1,21 @@
-Flags when generating moves need to be set properly
-Implementation of make_move
-Implementation of undo_move
-Perft testing functions
-Proper perft unit tests
+- Search pseudo legal and if not alpha-beta trimmed then check if it is actually legal, saves expensive stuff
+- Extract nmove score from move word via lookup tables
+- Use transposition tables during iterative deepening search
+- Speed up move gen with magic bitboards
+
+# Build everything in the workspace
+cargo build
+
+# Run the backend
+cargo run -p chess-backend
+
+# Test the engine
+cargo test -p chess-engine
+
+# Test the entire workspace
+cargo test --workspace
+
+# Run engine benchmarks
+cargo bench -p chess-engine
+
+cargo run -p chess-engine --example testing

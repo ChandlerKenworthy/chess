@@ -79,6 +79,12 @@ impl Piece {
         Piece::BlackRook, Piece::BlackQueen,  Piece::BlackKing,
     ];
 
+    pub fn new_from_index(index: usize) -> Self {
+        assert!(index < 12);
+        // Absolutely unsafe, should probably change
+        Self::ALL[index]
+    }
+
     pub fn new(color: Color, piece_type: PieceType) -> Self {
         let index = (color as usize) * 6 + (piece_type as usize);
         Self::ALL[index]

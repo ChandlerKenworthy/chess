@@ -1,2 +1,16 @@
-/target
-/test_results
+# General
+TODO.txt
+
+# Chess engine (backend)
+/engine/target
+/engine/test_results
+target/
+
+# frontend related
+.DS_Store
+.env
+/frontend/node_modules/
+
+# React Router
+/frontend/.react-router/
+/frontend/build/

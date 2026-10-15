@@ -34,6 +34,19 @@ impl Move {
     const IS_PROMOTION_ANY: u32 = (1 << 22) | (1 << 23) | (1 << 24) | (1 << 25);
     const CAPTURED_PIECE_SHIFT: u32 = 26;
 
+    pub fn from_request(from: String, to: String) -> Self {
+        // Convert strings to move object
+        // e.g. 'a1' -> index = 0 etc.
+
+        let from_idx = Square::from_str(&from).expect("Invalid square");
+        let to_idx = Square::from_str(&to).expect("Invalid square");
+
+        Self(
+            ((from_idx) << Self::FROM_SHIFT)
+            | ((to_idx) << Self::TO_SHIFT)
+        )
+    }
+
     pub fn new(from: Bitboard, to: Bitboard, origin_piece: PieceType) -> Self {
         let from: u32 = from.trailing_zeros();
         let to: u32 = to.trailing_zeros();

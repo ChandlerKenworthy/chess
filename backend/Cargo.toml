@@ -1,0 +1,10 @@
+[package]
+name = "chess-backend"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+chess-engine = { path = "../engine" }
+salvo = { version="1.0.1", features=["affix-state"] }
+serde = "1.0.229"
+tokio = { version="1.53.3", features = ["macros"] }

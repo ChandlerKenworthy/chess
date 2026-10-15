@@ -1,5 +1,5 @@
 use std::{debug_assert, ops::{Index, IndexMut}, println};
-use crate::generator::{Move, Bitboard, Color, PieceType, bitboard::{BLACK_KS, BLACK_QS, CASTLING_RIGHTS_MASK, CASTLING_ROOK_XOR_DEST, STARTING_BOARD, WHITE_KS, WHITE_QS, north, south}, Castling};
+use crate::generator::{Bitboard, Castling, Color, Move, PieceType, bitboard::{BLACK_KS, BLACK_QS, CASTLING_RIGHTS_MASK, CASTLING_ROOK_XOR_DEST, STARTING_BOARD, WHITE_KS, WHITE_QS, north, south}};
 use super::piece::Piece;
 use std::fmt;
 
@@ -115,6 +115,30 @@ impl fmt::Display for Square {
     }
 }
 
+impl Square {
+    pub fn from_str(square: &str) -> Option<u32> {
+        let bytes = square.as_bytes();
+
+        if bytes.len() != 2 {
+            return None;
+        }
+
+        let file = bytes[0];
+        let rank = bytes[1];
+
+        if !(b'a'..=b'h').contains(&file)
+            || !(b'1'..=b'8').contains(&rank)
+        {
+            return None;
+        }
+
+        let file_index = file - b'a';
+        let rank_index = rank - b'1';
+
+        Some((rank_index * 8 + file_index) as u32)
+    }
+}
+
 #[derive(Copy, Clone)]
 pub struct Board {
     pub bitboards: [Bitboard; 12],
@@ -137,13 +161,103 @@ pub struct UndoState {
 const PHASE_WEIGHTS: [i32; 6] = [0, 1, 1, 2, 4, 0]; // P, N, B, R, Q, K
 const TOTAL_PHASE: i32 = 24; // 4*N + 4*B + 4*R + 2*Q = 4 + 4 + 8 + 8
 
+impl Default for Board {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Board {
+    pub fn get_fen(&self) -> String {
+        let mut fen = String::new();
+
+        // 1) Piece Placement
+        // Standard piece character mapping for indices 0..11:
+        // White: P, N, B, R, Q, K (0-5)
+        // Black: p, n, b, r, q, k (6-11)
+        for rank in (0..8).rev() { // 8 --> 1
+            let mut empty_count = 0;
+            for file in 0..8 {
+                let square = rank * 8 + file;
+                let mut found_piece: Option<Piece> = None;
+
+                // Search this square
+                for (piece_idx, bb) in self.bitboards.iter().enumerate() {
+                    if (bb & (1 << square)) != 0 {
+                        found_piece = Some(Piece::new_from_index(piece_idx));
+                        break;
+                    }
+                }
+
+                if let Some(piece) = found_piece {
+                    if empty_count > 0 {
+                        fen.push_str(&empty_count.to_string());
+                        empty_count = 0;
+                    }
+                    fen.push(piece.to_char());
+                } else {
+                    empty_count += 1;
+                }
+            }
+
+            if empty_count > 0 {
+                fen.push_str(&empty_count.to_string());
+            }
+
+            if rank > 0 {
+                fen.push('/');
+            }
+        }
+
+        fen.push(' ');
+
+        // 2. Active Color
+        let color_char = if self.to_move == Color::White { 'w' } else { 'b' };
+        fen.push(color_char);
+        fen.push(' ');
+
+        // 3. Castling Rights
+        // Based on comment: [White QS][White KS][Black KS][Black QS][----] 
+        // Adjust bit masks or helper methods depending on your exact u8 bit layout.
+        let mut castling = String::new();
+        if self.can_castle(Castling::WhiteKingside) { castling.push('K'); }
+        if self.can_castle(Castling::WhiteQueenside) { castling.push('Q'); }
+        if self.can_castle(Castling::BlackKingside) { castling.push('k'); }
+        if self.can_castle(Castling::BlackQueenside) { castling.push('q'); }
+
+        if castling.is_empty() {
+            fen.push('-');
+        } else {
+            fen.push_str(&castling);
+        }
+        fen.push(' ');
+
+        // 4. En Passant Target Square
+        // Assuming self.en_passant is a Bitboard containing at most one bit.
+        if self.en_passant > 0 {
+            let sq = self.en_passant.trailing_zeros();
+            let file = (sq % 8) as u8;
+            let rank = (sq / 8) as u8;
+            let file_char = (b'a' + file) as char;
+            let rank_char = (b'1' + rank) as char;
+            fen.push(file_char);
+            fen.push(rank_char);
+        } else {
+            fen.push('-');
+        }
+
+        // 5 & 6. Halfmove clock and Fullmove number (Defaults)
+        fen.push_str(" 0 1");
+
+        fen
+    }
+
     // Returns a value between 0.0 (opening) and 1.0 (endgame)
     pub fn get_phase(&self) -> f32 {
         // TODO: Store phase and just update in make/unmake saves recalculating every time
         let mut material = 0;
-        for piece in 0..6 {
-            material += PHASE_WEIGHTS[piece]
+        for (piece, phase) in PHASE_WEIGHTS.iter().enumerate() {
+            material += phase
                 * (self.bitboards[piece].count_ones() + self.bitboards[6 + piece].count_ones()) as i32;
         }
 
@@ -158,14 +272,14 @@ impl Board {
         let material_curr = (TOTAL_PHASE as f32) - (self.phase * TOTAL_PHASE as f32);
         let mut material_new = material_curr - PHASE_WEIGHTS[piece as usize] as f32;
         material_new = material_new.min(TOTAL_PHASE as f32);
-        self.phase = (TOTAL_PHASE as f32 - material_new) as f32 / TOTAL_PHASE as f32
+        self.phase = (TOTAL_PHASE as f32 - material_new) / (TOTAL_PHASE as f32);
     }
 
     fn add_phase_material(&mut self, piece: PieceType) {
         let material_curr = (TOTAL_PHASE as f32) - (self.phase * TOTAL_PHASE as f32);
         let mut material_new = material_curr + PHASE_WEIGHTS[piece as usize] as f32;
         material_new = material_new.min(TOTAL_PHASE as f32);
-        self.phase = (TOTAL_PHASE as f32 - material_new) as f32 / TOTAL_PHASE as f32
+        self.phase = (TOTAL_PHASE as f32 - material_new) / (TOTAL_PHASE as f32);
     }
 
     pub fn unmake_move(&mut self, undo: UndoState) {
@@ -201,27 +315,6 @@ impl Board {
             let rook_idx = PieceType::Rook as usize + offset;
             self.bitboards[rook_idx] ^= CASTLING_ROOK_XOR_DEST[castling_type as usize];
         }
-
-        /* if undo.mv.is_capture() {
-            // Put the captured piece back at mv.to() (unless it was en-passant)
-            if !undo.mv.is_en_passant() {
-                // get the piece type that was captured and put it back at to()
-                let captured_piece_type = undo.mv.captured_piece().unwrap();
-                self.bitboards[captured_piece_type as usize + inverse_offset] |= to;
-                self.add_phase_material(captured_piece_type);
-            } else {
-                // Put the captured pawn back on the square "behind" the pawn that moved
-                match undo.to_move {
-                    Color::White => self.bitboards[Piece::BlackPawn as usize] |= south(to),
-                    Color::Black => self.bitboards[Piece::WhitePawn as usize] |= north(to),
-                }
-                self.add_phase_material(PieceType::Pawn);
-            }
-        } else if undo.mv.is_castling() {
-            // Put the corresponding rook back to its original square
-            let rook_idx = PieceType::Rook as usize + offset;
-            self.bitboards[rook_idx] ^= CASTLING_ROOK_XOR_DEST[undo.mv.castling_is().unwrap() as usize];
-        } */
 
         // If move is a promotion, it identifies the piece type that was promoted to and deletes it from the
         // corresponding bitboard, otherwise defaults to the piece that was moved and deletes it
