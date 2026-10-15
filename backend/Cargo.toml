@@ -5,5 +5,5 @@ edition = "2024"
 
 [dependencies]
 chess-engine = { path = "../engine" }
-salvo = "1.0.1"
+salvo = { version="1.0.1", features=["affix-state"] }
 tokio = { version="1.53.3", features = ["macros"] }
