@@ -1,5 +1,9 @@
-/target
-/test_results
+# General
+TODO.txt
+
+# Chess engine (backend)
+/backend/target
+/backend/test_results
 
 # frontend related
 .DS_Store

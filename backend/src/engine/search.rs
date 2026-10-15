@@ -2,6 +2,7 @@ use crate::engine::evaluation::{INFINITY, evaluate};
 use crate::generator::movegen::{Generator, MoveList};
 use crate::generator::{Color, Move, PieceType};
 use std::cmp::Reverse;
+use std::cmp;
 
 const PROMOTION_SCORE: i32 = 100_000;
 const CAPTURE_SCORE: i32 = 10_000;
@@ -35,17 +36,44 @@ fn order_moves(moves: &mut MoveList) {
     moves.sort_by_key(|&mv| Reverse(score_move(mv)));
 }
 
+fn search_all_captures(generator: &mut Generator, mut alpha: f32, beta: f32) -> f32 {
+    let eval = evaluate(&generator.b);
+
+    if eval >= beta {
+        return beta;
+    }
+
+    alpha = eval.max(alpha);
+
+    let mut capture_moves = generator.get_moves(true);
+    order_moves(&mut capture_moves);
+
+    for mv in capture_moves {
+        let undo = generator.b.make_move(mv);
+        let eval = -search_all_captures(generator, -beta, -alpha);
+        generator.b.unmake_move(undo);
+
+        if eval >= beta {
+            return beta;
+        }
+        alpha = eval.max(alpha);
+    }
+
+    alpha
+
+}
+
 pub fn negamax(generator: &mut Generator, depth: i32, mut alpha: f32, beta: f32) -> (f32, Option<Move>) {
     if depth == 0 {
         let color = match generator.b.to_move {
             Color::White => 1,
             Color::Black => -1,
         };
-        return (color as f32 * evaluate(&generator.b), None);
+        return (color as f32 * search_all_captures(generator, alpha, beta), None);
     }
 
     // Generate all moves for this position
-    let mut moves = generator.get_moves();
+    let mut moves = generator.get_moves(false);
     
     // If depth > 1, order the moves to prune faster
     if depth > 1 {    
@@ -92,3 +120,4 @@ pub fn negamax(generator: &mut Generator, depth: i32, mut alpha: f32, beta: f32)
     }
     (best_score, best_move)
 }
+
