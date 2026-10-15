@@ -19,6 +19,24 @@ pub fn router(state: SharedState) -> Router {
             Router::with_path("move")
             .post(make_move)
         )
+        .push(
+            Router::with_path("undo")
+            .post(undo_move)
+        )
+}
+
+#[handler]
+async fn undo_move(depot: &mut Depot) -> String {
+    let state = depot
+        .get_typed::<SharedState>()
+        .expect("AppState should be injected");
+    let mut state = state.lock().await;
+
+    if let Some(undo_state) = state.undo.take() {
+        state.generator.b.unmake_move(undo_state);
+    }
+
+    format!("{:?}", state.generator.b.get_fen())
 }
 
 #[handler]
@@ -44,7 +62,7 @@ async fn make_move(depot: &mut Depot, req: &mut Request) -> String {
         return format!("{:?}", state.generator.b.get_fen());
     }
 
-    let undo = state.generator.b.make_move(mv);
+    state.undo = Some(state.generator.b.make_move(mv));
 
     format!("{:?}", state.generator.b.get_fen())
 }

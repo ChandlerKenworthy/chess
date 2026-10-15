@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Chessboard, type PieceDropHandlerArgs } from "react-chessboard";
 import axios from "axios";
+import { undoMoveHandler } from "./GameHandlers";
 
 interface ChessGame {
     fen: string
@@ -13,7 +14,6 @@ const startGameState = {
 interface MoveRequest {
   from: string;
   to: string;
-  piece: string;
 }
 
 async function makeMove(move: MoveRequest): Promise<string> {
@@ -39,11 +39,7 @@ export default function ChessGame() {
             const fen = await makeMove({
                 from: sourceSquare,
                 to: targetSquare,
-                piece: piece.pieceType
             });
-
-            console.log(fen);
-
             setGame((prevGame) => ({ ...prevGame, fen }));
         } catch (error) {
             if (axios.isAxiosError(error)) {
@@ -79,7 +75,7 @@ export default function ChessGame() {
                 </button>
 
                 <button
-                onClick={() => console.log("implement me")}
+                onClick={() => undoMoveHandler(setGame)}
                 className="rounded-lg border px-4 py-2
                             hover:bg-slate-100"
                 >

@@ -1,10 +1,11 @@
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use chess_engine::{generator::{Board, movegen::Generator}};
+use chess_engine::generator::{Board, board::UndoState, movegen::Generator};
 
 pub struct AppState {
     pub board: Board,
     pub generator: Generator,
+    pub undo: Option<UndoState>,
     //pub engine: Engine,
 }
 
@@ -15,6 +16,7 @@ impl AppState {
         Self {
             board: b,
             generator: Generator::new(b),
+            undo: None,
             //engine: 0,
         }
     }
