@@ -1,2 +1,11 @@
 /target
 /test_results
+
+# frontend related
+.DS_Store
+.env
+/frontend/node_modules/
+
+# React Router
+/frontend/.react-router/
+/frontend/build/
