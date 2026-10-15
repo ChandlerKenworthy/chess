@@ -2,8 +2,9 @@
 TODO.txt
 
 # Chess engine (backend)
-/backend/target
-/backend/test_results
+/engine/target
+/engine/test_results
+target/
 
 # frontend related
 .DS_Store

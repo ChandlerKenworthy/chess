@@ -1,16 +1,14 @@
-use chess::generator::Board;
-use chess::engine::Engine;
-use chess::generator::bitboard::KIWIPETE;
+mod error;
+mod routes;
+mod state;
 
-fn main() {
+use salvo::prelude::*;
 
-    let board = Board::from_fen(KIWIPETE).expect("Invalid FEN");
-    let mut engine = Engine::new(board);
-    let mv = engine.get_best_move(5);
+#[tokio::main]
+async fn main() {
 
-    mv.print();
-    println!();
-    
+    let router = routes::router();
+    let acceptor = TcpListener::new("127.0.0.1:5800").bind().await;
 
+    Server::new(acceptor).serve(router).await;
 }
-

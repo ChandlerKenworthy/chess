@@ -1,8 +1,7 @@
 use crate::engine::evaluation::{INFINITY, evaluate};
 use crate::generator::movegen::{Generator, MoveList};
-use crate::generator::{Color, Move, PieceType};
+use crate::generator::{Color, Move};
 use std::cmp::Reverse;
-use std::cmp;
 
 const PROMOTION_SCORE: i32 = 100_000;
 const CAPTURE_SCORE: i32 = 10_000;
