@@ -1,9 +1,9 @@
-use chess::generator::bitboard::KIWIPETE;
+
+use chess_engine::generator::bitboard::KIWIPETE;
 use criterion::{criterion_group, criterion_main, Criterion};
 use std::hint::black_box;
-use chess::generator::Board;
-use chess::engine::Engine;
-
+use chess_engine::generator::Board;
+use chess_engine::engine::Engine;
 
 fn bench_kiwipete_depth_5(c: &mut Criterion) {
     let board = Board::from_fen(KIWIPETE).expect("Invalid FEN");

@@ -68,7 +68,7 @@ pub fn negamax(generator: &mut Generator, depth: i32, mut alpha: f32, beta: f32)
             Color::White => 1,
             Color::Black => -1,
         };
-        return (color as f32 * search_all_captures(generator, alpha, beta), None);
+        return (color as f32 * evaluate(&generator.b), None);
     }
 
     // Generate all moves for this position
