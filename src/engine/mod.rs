@@ -4,7 +4,7 @@ pub mod pst;
 
 use crate::engine::search::{negamax};
 use crate::engine::evaluation::{INFINITY};
-use crate::generator::{Board, Move};
+use crate::generator::{Board, Move, magic};
 use crate::generator::movegen::{Generator};
 
 pub struct Engine {

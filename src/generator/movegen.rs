@@ -1,6 +1,6 @@
 use crate::generator::{Bitboard, Board, Color, Move, Piece, PieceType, bitboard::{
     BLACK_KINGSIDE_ATTACKS_KING_OR_PAWN, BLACK_KINGSIDE_ATTACKS_KNIGHT, BLACK_KINGSIDE_FREE_SQUARES, BLACK_KINGSIDE_SLIDER_ATTACKS, BLACK_QUEENSIDE_ATTACKS_KING_OR_PAWN, BLACK_QUEENSIDE_ATTACKS_KNIGHT, BLACK_QUEENSIDE_FREE_SQUARES, BLACK_QUEENSIDE_SLIDER_ATTACKS, KINGSIDE_CASTLE_KING_DEST, PRIMARY_DIAGONAL_RAYS, PRIMARY_STRAIGHT_RAYS, PROMOTE_BISHOP_AND_CAPTURE, PROMOTE_KNIGHT_AND_CAPTURE, PROMOTE_QUEEN_AND_CAPTURE, PROMOTE_ROOK_AND_CAPTURE, QUEENSIDE_CASTLE_KING_DEST, RANK_1, RANK_3, RANK_6, RANK_8, REVERSE_SQUARE_BB, SECONDARY_DIAGONAL_RAYS, SECONDARY_STRAIGHT_RAYS, WHITE_KINGSIDE_ATTACKS_KING_OR_PAWN, WHITE_KINGSIDE_ATTACKS_KNIGHT, WHITE_KINGSIDE_FREE_SQUARES, WHITE_KINGSIDE_SLIDER_ATTACKS, WHITE_QUEENSIDE_ATTACKS_KING_OR_PAWN, WHITE_QUEENSIDE_ATTACKS_KNIGHT, WHITE_QUEENSIDE_FREE_SQUARES, WHITE_QUEENSIDE_SLIDER_ATTACKS, east, north, south, west
-}, game_move::EN_PASSANT_FLAG, piece::Castling};
+}, game_move::EN_PASSANT_FLAG, magic::{self, bishop_attacks, queen_attacks, rook_attacks}, piece::Castling};
 use arrayvec::ArrayVec;
 
 pub type MoveList = ArrayVec<Move, 256>;
@@ -77,7 +77,7 @@ pub const KING_MOVES: [Bitboard; 64] = {
 
 // Utility functions for move generation
 #[inline(always)]
-fn hyperbola_quintessence(
+pub fn hyperbola_quintessence(
     occupancy: Bitboard, 
     slider: Bitboard, 
     ray: Bitboard
@@ -112,6 +112,8 @@ pub struct Generator {
 
 impl Generator {
     pub fn new(b: Board) -> Self {
+        magic::init();
+
         let color_offset_idx = match b.to_move {
             Color::White => 0,
             Color::Black => 6
@@ -299,7 +301,7 @@ impl Generator {
             let from_idx = rooks.trailing_zeros() as usize;
             let from: Bitboard = 1u64 << from_idx;
 
-            let primary_ray = PRIMARY_STRAIGHT_RAYS[from_idx];
+            /* let primary_ray = PRIMARY_STRAIGHT_RAYS[from_idx];
             let secondary_ray = SECONDARY_STRAIGHT_RAYS[from_idx];
 
             // Inefficient, as slider.reverse_bits() called each time for primary & secondary
@@ -309,9 +311,11 @@ impl Generator {
             );
             let secondary_attacks = hyperbola_quintessence(
                 self.total_occ, from, secondary_ray
-            );
+            ); */
 
-            let mvs = (primary_attacks | secondary_attacks) & self.not_self_occ;
+            let mvs = rook_attacks(from_idx, self.total_occ) & self.not_self_occ;
+
+            //let mvs = (primary_attacks | secondary_attacks) & self.not_self_occ;
             let attack_moves = mvs & self.oppn_occ;
             let other_moves= mvs & !attack_moves;
 
@@ -329,7 +333,7 @@ impl Generator {
             let from_idx = bishops.trailing_zeros() as usize;
             let from: Bitboard = 1u64 << from_idx;
 
-            let primary_ray = PRIMARY_DIAGONAL_RAYS[from_idx];
+            /* let primary_ray = PRIMARY_DIAGONAL_RAYS[from_idx];
             let secondary_ray = SECONDARY_DIAGONAL_RAYS[from_idx];
 
             let primary_attacks = hyperbola_quintessence(
@@ -337,9 +341,10 @@ impl Generator {
             );
             let secondary_attacks = hyperbola_quintessence(
                 self.total_occ, from, secondary_ray
-            );
+            ); */
 
-            let mvs = (primary_attacks | secondary_attacks) & self.not_self_occ;
+            let mvs = bishop_attacks(from_idx, self.total_occ) & self.not_self_occ;
+            //let mvs = (primary_attacks | secondary_attacks) & self.not_self_occ;
             let attack_moves = mvs & self.oppn_occ;
             let other_moves= mvs & !attack_moves;
 
@@ -357,7 +362,7 @@ impl Generator {
             let from_idx = queens.trailing_zeros() as usize;
             let from: Bitboard = 1u64 << from_idx;
 
-            let primary_diagonal_ray = PRIMARY_DIAGONAL_RAYS[from_idx];
+            /* let primary_diagonal_ray = PRIMARY_DIAGONAL_RAYS[from_idx];
             let secondary_diagonal_ray = SECONDARY_DIAGONAL_RAYS[from_idx];
             let primary_straight_ray = PRIMARY_STRAIGHT_RAYS[from_idx];
             let secondary_straight_ray = SECONDARY_STRAIGHT_RAYS[from_idx];
@@ -373,13 +378,15 @@ impl Generator {
             );
             let secondary_straight_attacks = hyperbola_quintessence(
                 self.total_occ, from, secondary_straight_ray
-            );
+            ); */
 
-            let mvs = (
-                primary_straight_attacks 
-                | secondary_straight_attacks 
-                | primary_diagonal_attacks 
-                | secondary_diagonal_attacks) & self.not_self_occ;
+            //let mvs = (
+            //    primary_straight_attacks 
+            //    | secondary_straight_attacks 
+            //    | primary_diagonal_attacks 
+             //   | secondary_diagonal_attacks) & self.not_self_occ;
+            let mvs = queen_attacks(from_idx,self.total_occ) & self.not_self_occ;
+
             let attack_moves = mvs & self.oppn_occ;
             let other_moves= mvs & !attack_moves;
 

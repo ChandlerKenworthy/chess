@@ -3,6 +3,7 @@ pub mod movegen;
 pub mod piece;
 pub mod bitboard;
 pub mod game_move;
+pub mod magic; // magic bitboard implementation
 
 // Re-export commonly moved types for convenience
 pub use board::{Board, Square};

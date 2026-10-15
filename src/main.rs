@@ -1,15 +1,19 @@
-use chess::generator::Board;
+use chess::generator::magic::rook_attacks;
+use chess::generator::{Board, Square, magic};
 use chess::engine::Engine;
-use chess::generator::bitboard::KIWIPETE;
+use chess::generator::bitboard::{FILE_A, KIWIPETE, RANK_1, RANK_5, print_bitboard};
 
 fn main() {
+    magic::init();
 
-    let board = Board::from_fen(KIWIPETE).expect("Invalid FEN");
-    let mut engine = Engine::new(board);
-    let mv = engine.get_best_move(5);
+    let s = Square::a1;
+    let occ = FILE_A & (RANK_1 | RANK_5);
 
-    mv.print();
-    println!();
+    print_bitboard(RANK_1 & FILE_A);
+    print_bitboard(occ);
+
+    let x = rook_attacks(s.index() as usize, occ);
+    print_bitboard(x);
     
 
 }
