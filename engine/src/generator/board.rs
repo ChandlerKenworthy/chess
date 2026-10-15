@@ -115,6 +115,30 @@ impl fmt::Display for Square {
     }
 }
 
+impl Square {
+    pub fn from_str(square: &str) -> Option<u32> {
+        let bytes = square.as_bytes();
+
+        if bytes.len() != 2 {
+            return None;
+        }
+
+        let file = bytes[0];
+        let rank = bytes[1];
+
+        if !(b'a'..=b'h').contains(&file)
+            || !(b'1'..=b'8').contains(&rank)
+        {
+            return None;
+        }
+
+        let file_index = file - b'a';
+        let rank_index = rank - b'1';
+
+        Some((rank_index * 8 + file_index) as u32)
+    }
+}
+
 #[derive(Copy, Clone)]
 pub struct Board {
     pub bitboards: [Bitboard; 12],

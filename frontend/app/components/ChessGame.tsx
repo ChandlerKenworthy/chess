@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Chessboard, type DraggingPieceDataType, type PieceDropHandlerArgs } from "react-chessboard";
+import { Chessboard, type PieceDropHandlerArgs } from "react-chessboard";
+import axios from "axios";
 
 interface ChessGame {
     fen: string
@@ -9,6 +10,21 @@ const startGameState = {
     fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 } as ChessGame;
 
+interface MoveRequest {
+  from: string;
+  to: string;
+  piece: string;
+}
+
+async function makeMove(move: MoveRequest): Promise<string> {
+  const response = await axios.post<string>(
+    "/api/move",
+    move
+  );
+
+  return response.data;
+}
+
 export default function ChessGame() {
     const [game, setGame] = useState<ChessGame>(startGameState);
 
@@ -16,16 +32,30 @@ export default function ChessGame() {
         setGame(startGameState);
     }
 
-    function onPieceDrop({
+    async function onPieceDrop({
         piece, sourceSquare, targetSquare
-    }: PieceDropHandlerArgs): boolean {
-        console.log("Source: ", sourceSquare);
-        console.log("target:", targetSquare);
-        console.log(piece.pieceType)
+    }: PieceDropHandlerArgs): Promise<boolean> {
+        try {
+            const fen = await makeMove({
+                from: sourceSquare,
+                to: targetSquare,
+                piece: piece.pieceType
+            });
 
-        // Send the data to the backend and get back either
-        // a new FEN or an error, in which case the move was
-        // invalid
+            console.log(fen);
+
+            setGame((prevGame) => ({ ...prevGame, fen }));
+        } catch (error) {
+            if (axios.isAxiosError(error)) {
+                console.error(
+                "Move request failed:",
+                error.response?.status,
+                error.message
+                );
+            } else {
+                console.error(error);
+            }
+        }
 
         return true;
     }

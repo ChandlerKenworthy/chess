@@ -1,6 +1,7 @@
 mod error;
 mod routes;
 mod state;
+mod requests;
 
 use std::sync::Arc;
 use salvo::prelude::*;
