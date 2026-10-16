@@ -108,7 +108,6 @@ pub struct Generator {
     not_self_occ: Bitboard,
     oppn_occ: Bitboard,
     total_occ: Bitboard,
-    captures_only: bool, // when true, will only generate capture moves
 }
 
 impl Generator {
@@ -123,11 +122,11 @@ impl Generator {
             Color::Black => 0
         };
 
-        Generator { b, color_offset_idx, oppn_color_offset_idx, self_occ: 0u64, not_self_occ: !0u64, oppn_occ: 0u64, total_occ: 0u64, captures_only: false }
+        Generator { b, color_offset_idx, oppn_color_offset_idx, self_occ: 0u64, not_self_occ: !0u64, oppn_occ: 0u64, total_occ: 0u64 }
     }
 
     pub fn get_move_is_legal(&mut self, mv: &mut Move) -> bool {
-        let legal_moves = self.get_moves(false);
+        let legal_moves = self.get_moves();
 
         for legal_mv in legal_moves {
             // if lorigin = origin. and lto = to, then it's legal, update mv as legal_mv
@@ -225,9 +224,7 @@ impl Generator {
     }
 
     /// Returns a list of all legal moves for the current position.
-    pub fn get_moves(&mut self, do_only_captures: bool) -> MoveList {
-        self.captures_only = do_only_captures;
-
+    pub fn get_moves(&mut self) -> MoveList {
         let mut legal_moves = MoveList::new();
         let pseudo_legal = self.get_pseudo_legal_moves(); // ideally also returns MoveList!
 
@@ -330,11 +327,8 @@ impl Generator {
             let mvs = (primary_attacks | secondary_attacks) & self.not_self_occ;
             let attack_moves = mvs & self.oppn_occ;
             let other_moves= mvs & !attack_moves;
-             self.add_capture_moves(moves, attack_moves, from, PieceType::Rook);
-
-            if !self.captures_only {
-                self.add_moves(moves, other_moves, from, PieceType::Rook);
-            }
+            self.add_capture_moves(moves, attack_moves, from, PieceType::Rook);
+            self.add_moves(moves, other_moves, from, PieceType::Rook);
             rooks &= rooks - 1; // Remove the rook that was just processed
         }
     }
@@ -361,9 +355,7 @@ impl Generator {
             let other_moves= mvs & !attack_moves;
 
             self.add_capture_moves(moves, attack_moves, from, PieceType::Bishop);
-            if !self.captures_only {
-                self.add_moves(moves, other_moves, from, PieceType::Bishop);
-            }
+            self.add_moves(moves, other_moves, from, PieceType::Bishop);
 
             bishops &= bishops - 1;
         }
@@ -403,9 +395,7 @@ impl Generator {
             let other_moves= mvs & !attack_moves;
 
             self.add_capture_moves(moves, attack_moves, from, PieceType::Queen);
-            if !self.captures_only {
-                self.add_moves(moves, other_moves, from, PieceType::Queen);
-            }
+            self.add_moves(moves, other_moves, from, PieceType::Queen);
 
             queens &= queens - 1;
         }
@@ -426,9 +416,7 @@ impl Generator {
             let other_moves= mvs & !attack_moves;
 
             self.add_capture_moves(moves, attack_moves, from, PieceType::Knight);
-            if !self.captures_only {
-                self.add_moves(moves, other_moves, from, PieceType::Knight);
-            }
+            self.add_moves(moves, other_moves, from, PieceType::Knight);
 
             // Clear the knight we just processed
             knights &= knights - 1;
@@ -445,17 +433,10 @@ impl Generator {
         let other_moves= mvs & !attack_moves;
 
         self.add_capture_moves(moves, attack_moves, from, PieceType::King);
-
-        if !self.captures_only {
-            self.add_moves(moves, other_moves, from, PieceType::King);
-        }
+        self.add_moves(moves, other_moves, from, PieceType::King);
     }
 
     fn get_castling_moves(&self, moves: &mut MoveList) {
-        if self.captures_only {
-            return; // castling is not capturing
-        }
-
         let king = self.b.bitboards[(PieceType::King as usize) + self.color_offset_idx as usize];
 
         match self.b.to_move {
@@ -599,9 +580,7 @@ impl Generator {
                 Color::White => mvs & RANK_8,
                 Color::Black => mvs & RANK_1
             };
-            if !self.captures_only {
-                self.add_moves(moves, mvs & !promotion_mvs, from, PieceType::Pawn);
-            }
+            self.add_moves(moves, mvs & !promotion_mvs, from, PieceType::Pawn);
             
             while promotion_mvs != 0 {
                 let to = 1 << promotion_mvs.trailing_zeros();
@@ -628,9 +607,7 @@ impl Generator {
                 Color::White => north(mvs & RANK_3) & !self.total_occ,
                 Color::Black => south(mvs & RANK_6) & !self.total_occ
             };
-            if !self.captures_only {
-                self.add_moves_with_flags(moves, mvs, from, PieceType::Pawn, 0x10000);
-            }
+            self.add_moves_with_flags(moves, mvs, from, PieceType::Pawn, 0x10000);
 
             // Now scan for diagonal attacks
             let mvs = match self.b.to_move {

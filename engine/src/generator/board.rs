@@ -154,9 +154,6 @@ impl Board {
             Color::Black => (6, 0),
         };
 
-        // Whilst the below is nice, this breaks in the case of promotion
-        // self.bitboards[piece as usize + offset] ^= undo.mv.from() | undo.mv.to(); // Clear the bit at to and set it at from
-
         // Place the piece that was moved back at from
         self.bitboards[piece as usize + offset] |= undo.mv.from();
 
@@ -181,12 +178,12 @@ impl Board {
 
         // If move is a promotion, it identifies the piece type that was promoted to and deletes it from the
         // corresponding bitboard, otherwise defaults to the piece that was moved and deletes it
-        let piece_type = undo.mv.promotes_to().unwrap_or(piece);
-        self.bitboards[piece_type as usize + offset] &= !to;
-
-        if undo.mv.is_promotion() {
+        if let Some(piece_type) = undo.mv.promotes_to() {
+            self.bitboards[piece_type as usize + offset] &= !to;
             self.add_phase_material(PieceType::Pawn);
             self.remove_phase_material(piece_type);
+        } else {
+            self.bitboards[piece as usize + offset] &= !to;
         }
 
         self.to_move = undo.to_move;
@@ -205,62 +202,60 @@ impl Board {
 
         let dest = mv.to();
 
-        let (bb_idx, color_offset, self_color_offset, ep_pawn_idx) = match self.to_move {
-            Color::White => (mv.piece() as usize, 6, 0, Piece::BlackPawn as usize), 
-            Color::Black => (mv.piece() as usize + 6, 0, 6, Piece::WhitePawn as usize)
+        let (bb_idx, color_offset, self_color_offset) = match self.to_move {
+            Color::White => (mv.piece() as usize, 6, 0), 
+            Color::Black => (mv.piece() as usize + 6, 0, 6)
         };
 
-        // move the target piece from the origin to the target square
-        self.bitboards[bb_idx] ^= mv.from() | dest; // Clear the bit at from and set it at to
+        // Move the target piece from the origin to the target square
+        //self.bitboards[bb_idx] ^= mv.from() | dest; // Clear the bit at from and set it at to
+
+        // Ignore bounds checks, guaranteed to be valid indicies if generated from a legal
+        unsafe {
+            *self.bitboards.get_unchecked_mut(bb_idx) ^= mv.from() | dest;
+        }
 
         // Disable future en-passant, this is updated if the move was a double pawn push
         self.en_passant = 0;
 
-        // If the move was a capturing move (includes en-passant) update the captured
-        // pieces bitboard
         if mv.is_capture() {
-            if mv.is_en_passant() { // Capturing an enemy pawn and we can easily work out where
-                let captured_pawn = if self.to_move == Color::White {
-                    south(dest)
-                } else {
-                    north(dest)
-                };
-                self.bitboards[ep_pawn_idx] &= !captured_pawn;
-                
-                // Update the phase to remove a pawn
-                self.remove_phase_material(PieceType::Pawn);
-
-            } else {
+            if !mv.is_en_passant() {
                 let captured_piece = mv.captured_piece().unwrap();
                 let captured_idx = captured_piece as usize + color_offset;
                 self.remove_phase_material(captured_piece);
                 self.bitboards[captured_idx] &= !dest;
+            } else { // Move is en-passant, very rare hence taken out of the hot path here
+                match self.to_move {
+                    Color::White => self.bitboards[Piece::BlackPawn as usize] &= !south(dest),
+                    Color::Black => self.bitboards[Piece::WhitePawn as usize] &= !north(dest),
+                }
+                
+                // Update the phase to remove a pawn
+                self.remove_phase_material(PieceType::Pawn);
             }
-        }
-
-        if mv.is_double_pawn_push() {
+        // If a move is not a capture, it could be castling (but obviously not both)
+        } else if let Some(c) = mv.castling_is() { // Castling (move the rook) - King has already been moved
+            // Either 0, 1, 2 or 3 so just index into the array of XOR masks to move the rook to its new square
+            let rook_idx = PieceType::Rook as usize + self_color_offset;
+            self.bitboards[rook_idx] ^= CASTLING_ROOK_XOR_DEST[c as usize];
+        // If it is not a capture or castling, it could be a promotion (but obviously not both)
+        } else if mv.is_double_pawn_push() {
             self.en_passant = match self.to_move {
                 Color::White => south(dest),
                 Color::Black => north(dest)
-            };
+           };
         }
 
+        // Cannot be put in above branch as captures and promotions are not mutually exclusive
         if let Some(promotion_piece_type) = mv.promotes_to() {
             let promotion_idx = promotion_piece_type as usize + self_color_offset;
             self.bitboards[promotion_idx] |= dest;
 
-            // Delete pawn from mbv.to() (as already moved)
+            // Delete pawn from mv.to() (as already moved)
             self.bitboards[bb_idx] &= !dest;
 
             self.remove_phase_material(PieceType::Pawn);
             self.add_phase_material(promotion_piece_type);
-        }
-
-        // Castling (move the rook) - King has already been moved
-        if let Some(c) = mv.castling_is() {
-            // Either 0, 1, 2 or 3 so just index into the array of XOR masks to move the rook to its new square
-            let rook_idx = PieceType::Rook as usize + self_color_offset;
-            self.bitboards[rook_idx] ^= CASTLING_ROOK_XOR_DEST[c as usize];
         }
 
         // Update castling rights

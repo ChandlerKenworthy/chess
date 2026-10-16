@@ -44,7 +44,7 @@ fn search_all_captures(generator: &mut Generator, mut alpha: f32, beta: f32) -> 
 
     alpha = eval.max(alpha);
 
-    let mut capture_moves = generator.get_moves(true);
+    let mut capture_moves = generator.get_moves();
     order_moves(&mut capture_moves);
 
     for mv in capture_moves {
@@ -72,7 +72,7 @@ pub fn negamax(generator: &mut Generator, depth: i32, mut alpha: f32, beta: f32)
     }
 
     // Generate all moves for this position
-    let mut moves = generator.get_moves(false);
+    let mut moves = generator.get_moves();
     
     // If depth > 1, order the moves to prune faster
     if depth > 1 {    
