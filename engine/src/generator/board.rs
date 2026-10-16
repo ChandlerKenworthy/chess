@@ -1,4 +1,4 @@
-use std::{ops::{Index, IndexMut}, println};
+use std::{ops::{Index, IndexMut}, println, sync::OnceLock};
 use crate::generator::{Bitboard, Castling, Color, Move, PieceType, bitboard::{BLACK_KS, BLACK_QS, CASTLING_RIGHTS_MASK, CASTLING_ROOK_XOR_DEST, STARTING_BOARD, WHITE_KS, WHITE_QS, north, south}};
 use super::piece::Piece;
 
@@ -28,6 +28,66 @@ impl Default for Board {
     fn default() -> Self {
         Self::new()
     }
+}
+
+pub struct ZobristTable {
+    pub pieces: [[u64; 64]; 12],   // [piece_type_0..11][square_0..63]
+    pub side_to_move: u64,          // XORed if it's Black's turn
+    pub castling: [u64; 16],        // [castling_rights 0..15]
+    pub en_passant: [u64; 8],       // [file_0..7] for files a-h
+}
+
+
+// Example global/lazy static instance (e.g., using OnceLock or lazy_static)
+pub static ZOBRIST: OnceLock<ZobristTable> = OnceLock::new();
+
+impl ZobristTable {
+    pub fn new() -> Self {
+        // A simple deterministic PRNG state (e.g., SplitMix64 style generator)
+        let mut rng_state: u64 = 180428938330001 + 1; // Arbitrary non-zero seed
+
+        let mut next_u64 = || {
+            rng_state ^= rng_state << 13;
+            rng_state ^= rng_state >> 7;
+            rng_state ^= rng_state << 17;
+            rng_state
+        };
+
+        // 1. Initialize piece-square randoms (12 pieces * 64 squares)
+        let mut pieces = [[0u64; 64]; 12];
+        for piece in 0..12 {
+            for square in 0..64 {
+                pieces[piece][square] = next_u64();
+            }
+        }
+
+        // 2. Initialize side to move random
+        let side_to_move = next_u64();
+
+        // 3. Initialize castling rights randoms (16 possible u8 configurations)
+        let mut castling = [0u64; 16];
+        for c in &mut castling {
+            *c = next_u64();
+        }
+
+        // 4. Initialize en passant file randoms (Files a-h -> 8 columns)
+        let mut en_passant = [0u64; 8];
+        for ep in &mut en_passant {
+            *ep = next_u64();
+        }
+
+        Self {
+            pieces,
+            side_to_move,
+            castling,
+            en_passant,
+        }
+    }
+}
+
+// Helper accessor function if needed
+pub fn zobrist() -> &'static ZobristTable {
+    ZOBRIST.get_or_init(ZobristTable::new)
 }
 
 impl Board {
@@ -113,6 +173,38 @@ impl Board {
         fen.push_str(" 0 1");
 
         fen
+    }
+
+    /// Get the Zobrist hash of the current board state. This is a pseudo-unique identifier for the position, useful for transposition tables.
+    pub fn get_hash(&self) -> u64 {
+        let mut hash: u64 = 0;
+        let ztable = zobrist();
+
+        // Hash the pieces on their respective squares
+        for (piece_idx, mut bb) in self.bitboards.iter().copied().enumerate() {
+            while bb != 0 {
+                let square = bb.trailing_zeros() as usize;
+                hash ^= ztable.pieces[piece_idx][square];
+                bb &= bb - 1; // Clear the least significant bit
+            }
+        }
+
+        // Hash side to move (if it's Black's turn)
+        if self.to_move == Color::Black {
+            hash ^= ztable.side_to_move;
+        }
+
+        // Hash castling rights (u8 value 0 to 15) but only first 4 bits are actually used
+        hash ^= ztable.castling[(self.castling_rights & 0xF) as usize];
+
+        // Hash en passant file (if an en-passant square is available)
+        if self.en_passant != 0 {
+            let ep_square = self.en_passant.trailing_zeros() as usize;
+            let file = ep_square % 8; // Extract file index (0 to 7 for files a-h)
+            hash ^= ztable.en_passant[file];
+        }
+
+        hash
     }
 
     // Returns a value between 0.0 (opening) and 1.0 (endgame)
