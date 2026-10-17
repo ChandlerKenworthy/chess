@@ -35,33 +35,6 @@ fn order_moves(moves: &mut MoveList) {
     moves.sort_by_key(|&mv| Reverse(score_move(mv)));
 }
 
-fn search_all_captures(generator: &mut Generator, mut alpha: f32, beta: f32) -> f32 {
-    let eval = evaluate(&generator.b);
-
-    if eval >= beta {
-        return beta;
-    }
-
-    alpha = eval.max(alpha);
-
-    let mut capture_moves = generator.get_moves();
-    order_moves(&mut capture_moves);
-
-    for mv in capture_moves {
-        let undo = generator.b.make_move(mv);
-        let eval = -search_all_captures(generator, -beta, -alpha);
-        generator.b.unmake_move(undo);
-
-        if eval >= beta {
-            return beta;
-        }
-        alpha = eval.max(alpha);
-    }
-
-    alpha
-
-}
-
 pub fn negamax(generator: &mut Generator, depth: i32, mut alpha: f32, beta: f32) -> (f32, Option<Move>) {
     if depth == 0 {
         let color = match generator.b.to_move {

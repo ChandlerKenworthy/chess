@@ -1,5 +1,5 @@
-use crate::generator::{Bitboard, Board, Color, Move, Piece, PieceType, bitboard::{
-    BLACK_KINGSIDE_ATTACKS_KING_OR_PAWN, BLACK_KINGSIDE_ATTACKS_KNIGHT, BLACK_KINGSIDE_FREE_SQUARES, BLACK_KINGSIDE_SLIDER_ATTACKS, BLACK_QUEENSIDE_ATTACKS_KING_OR_PAWN, BLACK_QUEENSIDE_ATTACKS_KNIGHT, BLACK_QUEENSIDE_FREE_SQUARES, BLACK_QUEENSIDE_SLIDER_ATTACKS, KINGSIDE_CASTLE_KING_DEST, PRIMARY_DIAGONAL_RAYS, PRIMARY_STRAIGHT_RAYS, PROMOTE_BISHOP_AND_CAPTURE, PROMOTE_KNIGHT_AND_CAPTURE, PROMOTE_QUEEN_AND_CAPTURE, PROMOTE_ROOK_AND_CAPTURE, QUEENSIDE_CASTLE_KING_DEST, RANK_1, RANK_3, RANK_6, RANK_8, REVERSE_SQUARE_BB, SECONDARY_DIAGONAL_RAYS, SECONDARY_STRAIGHT_RAYS, WHITE_KINGSIDE_ATTACKS_KING_OR_PAWN, WHITE_KINGSIDE_ATTACKS_KNIGHT, WHITE_KINGSIDE_FREE_SQUARES, WHITE_KINGSIDE_SLIDER_ATTACKS, WHITE_QUEENSIDE_ATTACKS_KING_OR_PAWN, WHITE_QUEENSIDE_ATTACKS_KNIGHT, WHITE_QUEENSIDE_FREE_SQUARES, WHITE_QUEENSIDE_SLIDER_ATTACKS, east, north, south, west
+use crate::generator::{Bitboard, Board, Color, KingSafety, Move, Piece, PieceType::{self, King}, bitboard::{
+    BETWEEN_BB, BLACK_KINGSIDE_ATTACKS_KING_OR_PAWN, BLACK_KINGSIDE_ATTACKS_KNIGHT, BLACK_KINGSIDE_FREE_SQUARES, BLACK_KINGSIDE_SLIDER_ATTACKS, BLACK_QUEENSIDE_ATTACKS_KING_OR_PAWN, BLACK_QUEENSIDE_ATTACKS_KNIGHT, BLACK_QUEENSIDE_FREE_SQUARES, BLACK_QUEENSIDE_SLIDER_ATTACKS, KING_MOVES, KINGSIDE_CASTLE_KING_DEST, PAWN_ATTACKS, PRIMARY_DIAGONAL_RAYS, PRIMARY_STRAIGHT_RAYS, PROMOTE_BISHOP_AND_CAPTURE, PROMOTE_KNIGHT_AND_CAPTURE, PROMOTE_QUEEN_AND_CAPTURE, PROMOTE_ROOK_AND_CAPTURE, QUEENSIDE_CASTLE_KING_DEST, RANK_1, RANK_3, RANK_6, RANK_8, REVERSE_SQUARE_BB, SECONDARY_DIAGONAL_RAYS, SECONDARY_STRAIGHT_RAYS, WHITE_KINGSIDE_ATTACKS_KING_OR_PAWN, WHITE_KINGSIDE_ATTACKS_KNIGHT, WHITE_KINGSIDE_FREE_SQUARES, WHITE_KINGSIDE_SLIDER_ATTACKS, WHITE_QUEENSIDE_ATTACKS_KING_OR_PAWN, WHITE_QUEENSIDE_ATTACKS_KNIGHT, WHITE_QUEENSIDE_FREE_SQUARES, WHITE_QUEENSIDE_SLIDER_ATTACKS, east, north, south, west
 }, game_move::EN_PASSANT_FLAG, piece::Castling};
 use arrayvec::ArrayVec;
 
@@ -43,13 +43,6 @@ const fn generate_knight_moves(square: usize) -> Bitboard {
     moves
 }
 
-const fn generate_king_moves(square: usize) -> Bitboard {
-    let from: Bitboard = 1 << square;
-
-    north(from) | south(from) | east(from) | west(from) 
-    | north(east(from)) | north(west(from)) | south(east(from)) | south(west(from))
-}
-
 // Lookup tables
 pub const KNIGHT_MOVES: [Bitboard; 64] = {
     let mut table = [0; 64];
@@ -57,18 +50,6 @@ pub const KNIGHT_MOVES: [Bitboard; 64] = {
     let mut square = 0;
     while square < 64 {
         table[square] = generate_knight_moves(square);
-        square += 1;
-    }
-
-    table
-};
-
-pub const KING_MOVES: [Bitboard; 64] = {
-    let mut table = [0; 64];
-
-    let mut square = 0;
-    while square < 64 {
-        table[square] = generate_king_moves(square);
         square += 1;
     }
 
@@ -108,6 +89,7 @@ pub struct Generator {
     not_self_occ: Bitboard,
     oppn_occ: Bitboard,
     total_occ: Bitboard,
+    enemy_king: Bitboard,
 }
 
 impl Generator {
@@ -122,7 +104,7 @@ impl Generator {
             Color::Black => 0
         };
 
-        Generator { b, color_offset_idx, oppn_color_offset_idx, self_occ: 0u64, not_self_occ: !0u64, oppn_occ: 0u64, total_occ: 0u64 }
+        Generator { b, color_offset_idx, oppn_color_offset_idx, self_occ: 0u64, not_self_occ: !0u64, oppn_occ: 0u64, total_occ: 0u64, enemy_king: 0u64 }
     }
 
     pub fn get_move_is_legal(&mut self, mv: &mut Move) -> bool {
@@ -200,17 +182,7 @@ impl Generator {
     fn get_pseudo_legal_moves(&mut self) -> MoveList {
         let mut move_list = MoveList::new();
 
-        // Find which colour is due to move for bb offsets
-        (self.color_offset_idx, self.oppn_color_offset_idx) = match self.b.to_move {
-            Color::White => (0, 6),
-            Color::Black => (6, 0)
-        };
-
-        // Calculate the current board occupancies
-        self.self_occ = self.b.occupancy(self.b.to_move);
-        self.not_self_occ = !self.self_occ; // this operation is performed a lot so reduces # of instructions by doing it once here
-        self.oppn_occ = self.b.occupancy(!self.b.to_move);
-        self.total_occ = self.self_occ | self.oppn_occ;
+        self.enemy_king = self.b.bitboards[(PieceType::King as usize) + self.oppn_color_offset_idx as usize];
 
         self.get_king_moves(&mut move_list);
         self.get_castling_moves(&mut move_list);
@@ -223,22 +195,193 @@ impl Generator {
         move_list
     }
 
+    fn prepare(&mut self) {
+        // Update offsets for grabbing appropriate bitboards
+        (self.color_offset_idx, self.oppn_color_offset_idx) = match self.b.to_move {
+            Color::White => (0, 6),
+            Color::Black => (6, 0)
+        };
+
+        // Calculate the current board occupancies
+        self.self_occ = self.b.occupancy(self.b.to_move);
+        self.not_self_occ = !self.self_occ; // this operation is performed a lot so reduces # of instructions by doing it once here
+        self.oppn_occ = self.b.occupancy(!self.b.to_move);
+        self.total_occ = self.self_occ | self.oppn_occ;
+    }
+
     /// Returns a list of all legal moves for the current position.
     pub fn get_moves(&mut self) -> MoveList {
         let mut legal_moves = MoveList::new();
-        let pseudo_legal = self.get_pseudo_legal_moves(); // ideally also returns MoveList!
+
+        // Updates the generator's internal state based on the current board position
+        self.prepare();
+
+        // Calculate king safety ahead of time to avoid unecessary move calculation &
+        // legality checks
+        let king_bb = self.b.bitboards[(PieceType::King as usize) + self.color_offset_idx as usize];
+        let king_idx = king_bb.trailing_zeros() as usize;
+
+        let king_safety = self.analyse_king_safety(king_bb);
+        let n_checkers = king_safety.checkers.count_ones();
+
+        // In single check, non-king moves must capture the checker
+        // or block its attack.
+        let mut evasion_mask: Bitboard = 0;
+        if n_checkers == 1 {
+            let checker_sq_idx = king_safety.checkers.trailing_zeros() as usize;
+            evasion_mask = king_safety.checkers | BETWEEN_BB[king_idx][checker_sq_idx];
+        }
+
+        // Pseudo-legal moves must:
+        // - Generate king moves, promotions, castling and en-passant correctly
+        // - Not generate moves that capture the enemy king
+        // - Castling generator must already ensure that the king is not currently in check and does not cross an attacked square. If it doesn't, castling needs an additional check.
+        let pseudo_legal = self.get_pseudo_legal_moves();
+    
 
         for mv in pseudo_legal {
-            let undo = self.b.make_move(mv);
-            let is_legal = !self.is_in_check(!self.b.to_move);
-            self.b.unmake_move(undo);
-
-            if is_legal {
-                legal_moves.push(mv); // Stack push (zero allocations)
+            // Double check: only king moves can evade it.
+            if n_checkers >= 2 && mv.piece() != PieceType::King {
+                continue; // illegal move
             }
+
+            // King moves need an accurate post-move attack test as do
+            // en passant - special treatment because the captured
+            // pawn is not on the destination square.
+            if mv.piece() == PieceType::King || mv.is_en_passant() {
+                let undo = self.b.make_move(mv);
+                let is_legal = !self.is_in_check(!self.b.to_move);
+                self.b.unmake_move(undo);
+
+                if is_legal {
+                    legal_moves.push(mv); // Stack push (zero allocations)
+                }
+                continue; // don't need to check anything else
+            }
+
+            // In single check, a non-king move must capture the checker
+            // or interpose on the line of attack.
+            if n_checkers == 1 && (mv.to() & evasion_mask) == 0 {
+                continue; // illegal move
+            }
+
+            // Absolutely pinned pieces must remain on the pin line, or capture the pinner
+            // Is an absolutely pinned piece is moving?
+            if king_safety.pinned & mv.from() != 0 {
+                if (king_safety.pin_rays[mv.from_index() as usize] & mv.to()) == 0 {
+                    continue; // illegal move, absolute pin not moving along the pin line
+                }
+            }
+
+            // No make/unmake required for ordinary non-king moves:
+            // the pin and check-evasion constraints establish legality.
+            legal_moves.push(mv);
+
         }
 
         legal_moves
+    }
+
+    fn bishop_attacks(&self, square_idx: usize, occ: Bitboard) -> Bitboard {
+        let slider = 1 << square_idx;
+        let primary_attacks = hyperbola_quintessence(occ, slider, PRIMARY_DIAGONAL_RAYS[square_idx]);
+        let secondary_attacks = hyperbola_quintessence(occ, slider, SECONDARY_DIAGONAL_RAYS[square_idx]);
+        primary_attacks | secondary_attacks
+    }
+
+    fn rook_attacks(&self, square_idx: usize, occ: Bitboard) -> Bitboard {
+        let slider = 1 << square_idx;
+        let primary_attacks = hyperbola_quintessence(occ, slider, PRIMARY_STRAIGHT_RAYS[square_idx]);
+        let secondary_attacks = hyperbola_quintessence(occ, slider, SECONDARY_STRAIGHT_RAYS[square_idx]);
+        primary_attacks | secondary_attacks
+    }
+
+    /// For calculating pins/checks etc
+    fn analyse_king_safety(&self, king_bb: Bitboard) -> KingSafety {
+        // Find the player to move's king
+        let king_idx = king_bb.trailing_zeros() as usize;
+
+        // Bitboards for all the enemy pieces
+        let enemy_pawns = self.b.bitboards[
+            PieceType::Pawn as usize + self.oppn_color_offset_idx as usize
+        ];
+        let enemy_knights = self.b.bitboards[
+            PieceType::Knight as usize + self.oppn_color_offset_idx as usize
+        ];
+        let enemy_bishops = self.b.bitboards[
+            PieceType::Bishop as usize + self.oppn_color_offset_idx as usize
+        ];
+        let enemy_rooks = self.b.bitboards[
+            PieceType::Rook as usize + self.oppn_color_offset_idx as usize
+        ];
+        let enemy_queens = self.b.bitboards[
+            PieceType::Queen as usize + self.oppn_color_offset_idx as usize
+        ];
+        let enemy_king = self.b.bitboards[
+            PieceType::King as usize + self.oppn_color_offset_idx as usize
+        ];
+
+        // 1. Find all enemy pieces checking the king
+        // Note reversed colour is used for pawns as e.g. if white is to move we want to look
+        // for pawns NE or NW of the king (i.e. white pawn attack direction)
+        let pawn_checkers = PAWN_ATTACKS[self.b.to_move as usize][king_idx] & enemy_pawns;
+        let knight_checkers = KNIGHT_MOVES[king_idx] & enemy_knights;
+        let king_checkers = KING_MOVES[king_idx] & enemy_king;
+        let bishop_checkers = self.bishop_attacks(king_idx, self.total_occ) 
+            & (enemy_bishops | enemy_queens);
+        let rook_checkers = self.rook_attacks(king_idx, self.total_occ) 
+            & (enemy_rooks | enemy_queens);
+        let checkers =
+            pawn_checkers
+            | knight_checkers
+            | king_checkers
+            | bishop_checkers
+            | rook_checkers;
+
+        // 2. Find absolute pins 
+        // Remove friendly pieces from occupancy to see enemy sliders
+        // that may be hiding behind a friendly blocker.
+
+        // equivalent to self.oppn_occ
+        let xray_occ = self.total_occ & !self.self_occ;
+        
+        let rook_pinners =
+            self.rook_attacks(king_idx, xray_occ) & (enemy_rooks | enemy_queens);
+        let bishop_pinners = 
+            self.bishop_attacks(king_idx, xray_occ) & (enemy_bishops | enemy_queens);
+
+        let mut pinned: u64 = 0;
+        let mut pin_rays = [0u64; 64];
+        let mut pinners = rook_pinners | bishop_pinners;
+
+        while pinners != 0 {
+            let pinner_idx = pinners.trailing_zeros() as usize;
+            let pinner_bb = 1u64 << pinner_idx;
+
+            // Squares strictly between king and pinner.
+            let between = BETWEEN_BB[king_idx][pinner_idx];
+
+            // There must be exactly one blocker, and it must be ours.
+            let blockers = between & self.total_occ;
+
+            if blockers.count_ones() == 1 && blockers & self.self_occ != 0 {
+                let pinned_piece_idx = blockers.trailing_zeros() as usize;
+                let pinned_piece_bb = 1u64 << pinned_piece_idx;
+                pinned |= pinned_piece_bb;
+
+                // The pinned piece may move along the pin line,
+                // including capturing the pinner.
+                pin_rays[pinned_piece_idx] = between | pinner_bb;
+            }
+
+            pinners &= pinners - 1;            
+        }
+
+        KingSafety {
+            checkers,
+            pinned,
+            pin_rays
+        }
     }
 
     #[inline(always)]
@@ -324,7 +467,7 @@ impl Generator {
                 self.total_occ, from, secondary_ray
             );
 
-            let mvs = (primary_attacks | secondary_attacks) & self.not_self_occ;
+            let mvs = (primary_attacks | secondary_attacks) & self.not_self_occ & !self.enemy_king;
             let attack_moves = mvs & self.oppn_occ;
             let other_moves= mvs & !attack_moves;
             self.add_capture_moves(moves, attack_moves, from, PieceType::Rook);
@@ -350,7 +493,7 @@ impl Generator {
                 self.total_occ, from, secondary_ray
             );
 
-            let mvs = (primary_attacks | secondary_attacks) & self.not_self_occ;
+            let mvs = (primary_attacks | secondary_attacks) & self.not_self_occ & !self.enemy_king;
             let attack_moves = mvs & self.oppn_occ;
             let other_moves= mvs & !attack_moves;
 
@@ -390,7 +533,7 @@ impl Generator {
                 primary_straight_attacks 
                 | secondary_straight_attacks 
                 | primary_diagonal_attacks 
-                | secondary_diagonal_attacks) & self.not_self_occ;
+                | secondary_diagonal_attacks) & self.not_self_occ & !self.enemy_king;
             let attack_moves = mvs & self.oppn_occ;
             let other_moves= mvs & !attack_moves;
 
@@ -411,7 +554,7 @@ impl Generator {
             let from: u64 = 1 << from_idx;
 
             // Get all possible knight destinations - but not onto our own pieces
-            let mvs = KNIGHT_MOVES[from_idx] & self.not_self_occ;
+            let mvs = KNIGHT_MOVES[from_idx] & self.not_self_occ & !self.enemy_king;
             let attack_moves = mvs & self.oppn_occ;
             let other_moves= mvs & !attack_moves;
 
@@ -428,7 +571,7 @@ impl Generator {
         let from_idx = king.trailing_zeros() as usize;
         let from: u64 = 1 << from_idx;
 
-        let mvs = KING_MOVES[from_idx] & self.not_self_occ;
+        let mvs = KING_MOVES[from_idx] & self.not_self_occ & !self.enemy_king;
         let attack_moves = mvs & self.oppn_occ;
         let other_moves= mvs & !attack_moves;
 
@@ -478,6 +621,7 @@ impl Generator {
 
         let enemy_king_or_pawn = self.b.bitboards[PieceType::King as usize + offset] | self.b.bitboards[PieceType::Pawn as usize + offset];
         // An enemy king or pawns attack "rays" intercept the castling squares the king will move through/onto
+        // or curently point at the king i.e. the king is in check via pawn/knight
         if (king_pawn_mask & enemy_king_or_pawn) != 0 {
             return false;
         }
@@ -574,7 +718,7 @@ impl Generator {
             // Compute the 1-step moves forward ("primary" pawn move)
             let mvs: Bitboard = match self.b.to_move {
                 Color::White => north(from) & !self.total_occ,
-                Color::Black => south(from) & !self.total_occ
+                Color::Black => south(from) & !self.total_occ,
             };
             let mut promotion_mvs = match self.b.to_move {
                 Color::White => mvs & RANK_8,
@@ -611,8 +755,8 @@ impl Generator {
 
             // Now scan for diagonal attacks
             let mvs = match self.b.to_move {
-                Color::White => (north(east(from)) | north(west(from))) & self.oppn_occ,
-                Color::Black => (south(east(from)) | south(west(from))) & self.oppn_occ
+                Color::White => (north(east(from)) | north(west(from))) & self.oppn_occ & !self.enemy_king,
+                Color::Black => (south(east(from)) | south(west(from))) & self.oppn_occ & !self.enemy_king
             };
 
             // Flags are awkward here as could change e.g. all attacks, but could also
