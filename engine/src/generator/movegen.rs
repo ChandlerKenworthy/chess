@@ -1,4 +1,4 @@
-use crate::generator::{Bitboard, Board, Color, KingSafety, Move, Piece, PieceType::{self, King}, bitboard::{
+use crate::generator::{Bitboard, Board, Color, KingSafety, Move, Piece, PieceType, bitboard::{
     BETWEEN_BB, BLACK_KINGSIDE_ATTACKS_KING_OR_PAWN, BLACK_KINGSIDE_ATTACKS_KNIGHT, BLACK_KINGSIDE_FREE_SQUARES, BLACK_KINGSIDE_SLIDER_ATTACKS, BLACK_QUEENSIDE_ATTACKS_KING_OR_PAWN, BLACK_QUEENSIDE_ATTACKS_KNIGHT, BLACK_QUEENSIDE_FREE_SQUARES, BLACK_QUEENSIDE_SLIDER_ATTACKS, KING_MOVES, KINGSIDE_CASTLE_KING_DEST, PAWN_ATTACKS, PRIMARY_DIAGONAL_RAYS, PRIMARY_STRAIGHT_RAYS, PROMOTE_BISHOP_AND_CAPTURE, PROMOTE_KNIGHT_AND_CAPTURE, PROMOTE_QUEEN_AND_CAPTURE, PROMOTE_ROOK_AND_CAPTURE, QUEENSIDE_CASTLE_KING_DEST, RANK_1, RANK_3, RANK_6, RANK_8, REVERSE_SQUARE_BB, SECONDARY_DIAGONAL_RAYS, SECONDARY_STRAIGHT_RAYS, WHITE_KINGSIDE_ATTACKS_KING_OR_PAWN, WHITE_KINGSIDE_ATTACKS_KNIGHT, WHITE_KINGSIDE_FREE_SQUARES, WHITE_KINGSIDE_SLIDER_ATTACKS, WHITE_QUEENSIDE_ATTACKS_KING_OR_PAWN, WHITE_QUEENSIDE_ATTACKS_KNIGHT, WHITE_QUEENSIDE_FREE_SQUARES, WHITE_QUEENSIDE_SLIDER_ATTACKS, east, north, south, west
 }, game_move::EN_PASSANT_FLAG, piece::Castling};
 use arrayvec::ArrayVec;
@@ -195,6 +195,242 @@ impl Generator {
         move_list
     }
 
+    fn get_pseudo_legal_king_moves(&mut self) -> MoveList {
+        let mut move_list: ArrayVec<Move, 256> = MoveList::new();
+        self.enemy_king = self.b.bitboards[(PieceType::King as usize) + self.oppn_color_offset_idx as usize];
+        self.get_king_moves(&mut move_list);
+        move_list
+    }
+
+    #[inline(always)]
+    fn is_legal_move_deep(&mut self, mv: Move) -> bool {
+        // Checks if a move is legal by doing a make/unmake and checking if the king is in check
+        let undo = self.b.make_move(mv);
+        let is_legal = !self.is_in_check(!self.b.to_move);
+        self.b.unmake_move(undo);
+        is_legal
+    }
+
+    fn get_knight_moves_to(&mut self, moves: &mut MoveList, targets: Bitboard) {
+        let mut knights = self.b.bitboards[(PieceType::Knight as usize) + self.color_offset_idx as usize];
+
+        while knights != 0 {
+            let from_idx = knights.trailing_zeros() as usize;
+            let from: u64 = 1 << from_idx;
+
+            // Get all possible knight destinations - but not onto our own pieces
+            let mvs = KNIGHT_MOVES[from_idx] & self.not_self_occ & !self.enemy_king & targets;
+            let attack_moves = mvs & self.oppn_occ;
+            let other_moves= mvs & !attack_moves;
+
+            self.add_capture_moves(moves, attack_moves, from, PieceType::Knight);
+            self.add_moves(moves, other_moves, from, PieceType::Knight);
+
+            // Clear the knight we just processed
+            knights &= knights - 1;
+        }
+    }
+    
+    fn get_rook_moves_to(&mut self, moves: &mut MoveList, targets: Bitboard) {
+        let mut rooks = self.b.bitboards[(PieceType::Rook as usize) + self.color_offset_idx as usize];
+
+        while rooks != 0 {
+            let from_idx = rooks.trailing_zeros() as usize;
+            let from: Bitboard = 1u64 << from_idx;
+
+            let attacks = self.rook_attacks(from_idx, self.total_occ) & targets & !self.enemy_king & self.not_self_occ;
+            let capture_moves = attacks & self.oppn_occ;
+            let other_moves = attacks & !capture_moves;
+
+            self.add_capture_moves(moves, capture_moves, from, PieceType::Rook);
+            self.add_moves(moves, other_moves, from, PieceType::Rook);
+            rooks &= rooks - 1; // Remove the rook that was just processed
+        }
+    }
+
+    fn get_bishop_moves_to(&mut self, moves: &mut MoveList, targets: Bitboard) {
+        let mut bishops = self.b.bitboards[(PieceType::Bishop as usize) + self.color_offset_idx as usize];
+
+        while bishops != 0 {
+            let from_idx = bishops.trailing_zeros() as usize;
+            let from: Bitboard = 1u64 << from_idx;
+
+            let attacks = self.bishop_attacks(from_idx, self.total_occ) & targets & !self.enemy_king & self.not_self_occ;
+            let capture_moves = attacks & self.oppn_occ;
+            let other_moves = attacks & !capture_moves;
+
+            self.add_capture_moves(moves, capture_moves, from, PieceType::Bishop);
+            self.add_moves(moves, other_moves, from, PieceType::Bishop);
+            bishops &= bishops - 1; // Remove the rook that was just processed
+        }
+    }
+
+    fn get_queen_moves_to(&mut self, moves: &mut MoveList, targets: Bitboard) {
+        let mut queens = self.b.bitboards[(PieceType::Queen as usize) + self.color_offset_idx as usize];
+
+        while queens != 0 {
+            let from_idx = queens.trailing_zeros() as usize;
+            let from: Bitboard = 1u64 << from_idx;
+
+            let primary_diagonal_ray = PRIMARY_DIAGONAL_RAYS[from_idx];
+            let secondary_diagonal_ray = SECONDARY_DIAGONAL_RAYS[from_idx];
+            let primary_straight_ray = PRIMARY_STRAIGHT_RAYS[from_idx];
+            let secondary_straight_ray = SECONDARY_STRAIGHT_RAYS[from_idx];
+
+            let primary_diagonal_attacks = hyperbola_quintessence(
+                self.total_occ, from, primary_diagonal_ray
+            );
+            let secondary_diagonal_attacks = hyperbola_quintessence(
+                self.total_occ, from, secondary_diagonal_ray
+            );
+            let primary_straight_attacks = hyperbola_quintessence(
+                self.total_occ, from, primary_straight_ray
+            );
+            let secondary_straight_attacks = hyperbola_quintessence(
+                self.total_occ, from, secondary_straight_ray
+            );
+
+            let mvs = (
+                primary_straight_attacks 
+                | secondary_straight_attacks 
+                | primary_diagonal_attacks 
+                | secondary_diagonal_attacks) & self.not_self_occ & !self.enemy_king & targets;
+            let attack_moves = mvs & self.oppn_occ;
+            let other_moves= mvs & !attack_moves;
+
+            self.add_capture_moves(moves, attack_moves, from, PieceType::Queen);
+            self.add_moves(moves, other_moves, from, PieceType::Queen);
+
+            queens &= queens - 1;
+        }
+    }
+
+    fn get_pawn_moves_to(&mut self, moves: &mut MoveList, targets: Bitboard) {
+        // n.b. "targets" is inclusive of the checking piece so the pawn can either
+        // (diagonally) capture the checking piece, or double move into the checking ray
+        // single step into the checking ray or en-passant into the checking ray
+
+        let mut pawns = self.b.bitboards[(PieceType::Pawn as usize) + self.color_offset_idx as usize];
+
+        while pawns != 0 {
+            let from_idx = pawns.trailing_zeros() as usize;
+            let from: Bitboard = 1 << from_idx;
+
+            // 1-step forward pawn moves
+            let mvs: Bitboard = match self.b.to_move {
+                Color::White => north(from) & !self.total_occ & targets,
+                Color::Black => south(from) & !self.total_occ & targets,
+            };
+            let mut promotion_mvs = match self.b.to_move {
+                Color::White => mvs & RANK_8,
+                Color::Black => mvs & RANK_1
+            };
+            self.add_moves(moves, mvs & !promotion_mvs, from, PieceType::Pawn);
+            
+            while promotion_mvs != 0 {
+                let to = 1 << promotion_mvs.trailing_zeros();
+                
+                moves.push( // promote to a queen
+                    Move::new_with_flags(from, to, PieceType::Pawn, 1 << 22)
+                );
+                moves.push( // promote to a rook
+                    Move::new_with_flags(from, to, PieceType::Pawn, 1 << 23)
+                );
+                moves.push( // promote to a knight
+                    Move::new_with_flags(from, to, PieceType::Pawn, 1 << 24)
+                );
+                moves.push( // promote to a bishop
+                    Move::new_with_flags(from, to, PieceType::Pawn, 1 << 25)
+                );
+                
+                promotion_mvs &= promotion_mvs - 1;
+            }
+
+            // Different logic to other pawn function as double forward moves can't directly use
+            // the single steps due the target mask application
+            let mvs = match self.b.to_move {
+                Color::White => north(north(from) & !self.total_occ & RANK_3) & !self.total_occ & targets,
+                Color::Black => south(south(from) & !self.total_occ & RANK_6) & !self.total_occ & targets
+            };
+            self.add_moves_with_flags(moves, mvs, from, PieceType::Pawn, 0x10000);
+
+            // Diagonal attacks
+            let mvs = match self.b.to_move {
+                Color::White => (north(east(from)) | north(west(from))) & self.oppn_occ & !self.enemy_king & targets,
+                Color::Black => (south(east(from)) | south(west(from))) & self.oppn_occ & !self.enemy_king & targets,
+            };
+
+            // Flags are awkward here as could change e.g. all attacks, but could also
+            // be a promotion!
+            let mut attack_mv_promotion = match self.b.to_move {
+                Color::White => mvs & RANK_8,
+                Color::Black => mvs & RANK_1
+            };
+            let attack_mv = mvs & !attack_mv_promotion;
+            self.add_capture_moves(moves, attack_mv, from, PieceType::Pawn);
+
+            while attack_mv_promotion != 0 {
+                let to = 1 << attack_mv_promotion.trailing_zeros();
+                let captured = self.get_captured_piece(to).unwrap();
+
+                moves.push( // Attack & promote to a queen
+                    Move::new_capture_with_flags(from, to, PieceType::Pawn, captured, PROMOTE_QUEEN_AND_CAPTURE)
+                );
+                moves.push( // Attack & promote to a rook
+                    Move::new_capture_with_flags(from, to, PieceType::Pawn, captured, PROMOTE_ROOK_AND_CAPTURE)
+                );
+                moves.push( // Attack & promote to a knight
+                    Move::new_capture_with_flags(from, to, PieceType::Pawn, captured, PROMOTE_KNIGHT_AND_CAPTURE)
+                );
+                moves.push( // Attack & promote to a bishop
+                    Move::new_capture_with_flags(from, to, PieceType::Pawn, captured, PROMOTE_BISHOP_AND_CAPTURE)
+                );
+                
+                attack_mv_promotion &= attack_mv_promotion - 1;
+            }
+    
+            // No extra checks with targets here, these moves are dealt with heavily anyway later
+            if self.b.en_passant != 0 {
+                let is_valid_ep = match self.b.to_move {
+                    // No rank check needed of the origin pawn because self.b.en_passant is guaranteed to be on Rank 3/6
+                    Color::White => (south(east(self.b.en_passant) | west(self.b.en_passant)) & from) != 0,
+                    Color::Black => (north(east(self.b.en_passant) | west(self.b.en_passant)) & from) != 0,
+                };
+
+                if is_valid_ep {
+                    moves.push(
+                        Move::new_capture_with_flags(
+                        from,
+                        self.b.en_passant,
+                        PieceType::Pawn,
+                        PieceType::Pawn,
+                        EN_PASSANT_FLAG
+                    ));
+                }
+            }
+            pawns &= pawns - 1;
+        }
+    }
+
+    fn get_pseudo_legal_evasions(&mut self, evasions: Bitboard) -> MoveList {
+        // Any "regular" king move is potentially legal, it doesn't need to be on the evasion mask
+        let mut move_list: ArrayVec<Move, 256> = MoveList::new();
+        self.enemy_king = self.b.bitboards[(PieceType::King as usize) + self.oppn_color_offset_idx as usize];
+
+        // Note: no castling, cannot castle out of check
+        self.get_king_moves(&mut move_list);
+        self.get_knight_moves_to(&mut move_list, evasions);
+        self.get_rook_moves_to(&mut move_list, evasions);
+        self.get_bishop_moves_to(&mut move_list, evasions);
+        self.get_queen_moves_to(&mut move_list, evasions);
+
+        // No delicacy required here as en-passant moves (and all king moves)
+        // are fully checked via make/unmake even for evasion scans
+        self.get_pawn_moves_to(&mut move_list, evasions);
+
+        move_list
+    }
+
     fn prepare(&mut self) {
         // Update offsets for grabbing appropriate bitboards
         (self.color_offset_idx, self.oppn_color_offset_idx) = match self.b.to_move {
@@ -226,10 +462,42 @@ impl Generator {
 
         // In single check, non-king moves must capture the checker
         // or block its attack.
-        let mut evasion_mask: Bitboard = 0;
         if n_checkers == 1 {
             let checker_sq_idx = king_safety.checkers.trailing_zeros() as usize;
-            evasion_mask = king_safety.checkers | BETWEEN_BB[king_idx][checker_sq_idx];
+            let evasion_mask = king_safety.checkers | BETWEEN_BB[king_idx][checker_sq_idx];
+
+            let pseudo_legal = self.get_pseudo_legal_evasions(evasion_mask);
+
+            for mv in pseudo_legal {
+                // All moves generated are already restricted to exist on the evasion mask so
+                // no need to check mv.to() & evasion_mask != 0
+                if mv.piece() == PieceType::King || mv.is_en_passant() {
+                    if self.is_legal_move_deep(mv) {
+                        legal_moves.push(mv); // Stack push (zero allocations)
+                    }
+                    continue; // don't need to check anything else
+                }
+                if king_safety.pinned & mv.from() != 0 {
+                    if (king_safety.pin_rays[mv.from_index() as usize] & mv.to()) == 0 {
+                        continue; // illegal move, absolute pin not moving along the pin line
+                    }
+                }
+                legal_moves.push(mv);
+            }
+            return legal_moves;
+        } else if n_checkers >= 2 {
+            // Double check moves: only resolution is the king must move
+            // so don't bother generated anything other than king moves
+
+            let pseudo_legal_king_moves = self.get_pseudo_legal_king_moves();
+            for mv in pseudo_legal_king_moves {
+                // Checks move legality via slow make/unmake
+                if self.is_legal_move_deep(mv) {
+                    legal_moves.push(mv); // Stack push (zero allocations)
+                }
+                continue; // don't need to check anything else
+            }
+            return legal_moves;
         }
 
         // Pseudo-legal moves must:
@@ -240,29 +508,14 @@ impl Generator {
     
 
         for mv in pseudo_legal {
-            // Double check: only king moves can evade it.
-            if n_checkers >= 2 && mv.piece() != PieceType::King {
-                continue; // illegal move
-            }
-
             // King moves need an accurate post-move attack test as do
             // en passant - special treatment because the captured
             // pawn is not on the destination square.
             if mv.piece() == PieceType::King || mv.is_en_passant() {
-                let undo = self.b.make_move(mv);
-                let is_legal = !self.is_in_check(!self.b.to_move);
-                self.b.unmake_move(undo);
-
-                if is_legal {
+                if self.is_legal_move_deep(mv) {
                     legal_moves.push(mv); // Stack push (zero allocations)
                 }
                 continue; // don't need to check anything else
-            }
-
-            // In single check, a non-king move must capture the checker
-            // or interpose on the line of attack.
-            if n_checkers == 1 && (mv.to() & evasion_mask) == 0 {
-                continue; // illegal move
             }
 
             // Absolutely pinned pieces must remain on the pin line, or capture the pinner
@@ -813,7 +1066,3 @@ impl Generator {
 
 
 }
-
-
-
- 
