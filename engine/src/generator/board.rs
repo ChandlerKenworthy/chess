@@ -1,143 +1,6 @@
-use std::{debug_assert, ops::{Index, IndexMut}, println};
+use std::{ops::{Index, IndexMut}, println, sync::OnceLock};
 use crate::generator::{Bitboard, Castling, Color, Move, PieceType, bitboard::{BLACK_KS, BLACK_QS, CASTLING_RIGHTS_MASK, CASTLING_ROOK_XOR_DEST, STARTING_BOARD, WHITE_KS, WHITE_QS, north, south}};
 use super::piece::Piece;
-use std::fmt;
-
-#[derive(Copy, Clone, Debug)]
-pub struct Square(pub u8);
-
-impl Square {
-    pub const fn new(index: u32) -> Self {
-        debug_assert!(index < 64);
-        Self(index as u8)
-    }
-
-    pub const fn index(self) -> u8 {
-        self.0
-    }
-
-    pub fn bb(&self) -> Bitboard {
-        1u64 << self.0
-    }
-}
-
-// Chess convention uses lowercase square names (g1, c8, ...),
-// which clashes with Rust's constant-naming lint. Silence it locally.
-#[allow(non_upper_case_globals)]
-impl Square {
-    pub const a1: Square = Square::new(0);
-    pub const b1: Square = Square::new(1);
-    pub const c1: Square = Square::new(2);
-    pub const d1: Square = Square::new(3);
-    pub const e1: Square = Square::new(4);
-    pub const f1: Square = Square::new(5);
-    pub const g1: Square = Square::new(6);
-    pub const h1: Square = Square::new(7);
-
-    pub const a2: Square = Square::new(8);
-    pub const b2: Square = Square::new(9);
-    pub const c2: Square = Square::new(10);
-    pub const d2: Square = Square::new(11);
-    pub const e2: Square = Square::new(12);
-    pub const f2: Square = Square::new(13);
-    pub const g2: Square = Square::new(14);
-    pub const h2: Square = Square::new(15);
-
-    pub const a3: Square = Square::new(16);
-    pub const b3: Square = Square::new(17);
-    pub const c3: Square = Square::new(18);
-    pub const d3: Square = Square::new(19);
-    pub const e3: Square = Square::new(20);
-    pub const f3: Square = Square::new(21);
-    pub const g3: Square = Square::new(22);
-    pub const h3: Square = Square::new(23);
-
-    pub const a4: Square = Square::new(24);
-    pub const b4: Square = Square::new(25);
-    pub const c4: Square = Square::new(26);
-    pub const d4: Square = Square::new(27);
-    pub const e4: Square = Square::new(28);
-    pub const f4: Square = Square::new(29);
-    pub const g4: Square = Square::new(30);
-    pub const h4: Square = Square::new(31);
-
-    pub const a5: Square = Square::new(32);
-    pub const b5: Square = Square::new(33);
-    pub const c5: Square = Square::new(34);
-    pub const d5: Square = Square::new(35);
-    pub const e5: Square = Square::new(36);
-    pub const f5: Square = Square::new(37);
-    pub const g5: Square = Square::new(38);
-    pub const h5: Square = Square::new(39);
-
-    pub const a6: Square = Square::new(40);
-    pub const b6: Square = Square::new(41);
-    pub const c6: Square = Square::new(42);
-    pub const d6: Square = Square::new(43);
-    pub const e6: Square = Square::new(44);
-    pub const f6: Square = Square::new(45);
-    pub const g6: Square = Square::new(46);
-    pub const h6: Square = Square::new(47);
-
-    pub const a7: Square = Square::new(48);
-    pub const b7: Square = Square::new(49);
-    pub const c7: Square = Square::new(50);
-    pub const d7: Square = Square::new(51);
-    pub const e7: Square = Square::new(52);
-    pub const f7: Square = Square::new(53);
-    pub const g7: Square = Square::new(54);
-    pub const h7: Square = Square::new(55);
-
-    pub const a8: Square = Square::new(56);
-    pub const b8: Square = Square::new(57);
-    pub const c8: Square = Square::new(58);
-    pub const d8: Square = Square::new(59);
-    pub const e8: Square = Square::new(60);
-    pub const f8: Square = Square::new(61);
-    pub const g8: Square = Square::new(62);
-    pub const h8: Square = Square::new(63);
-}
-
-// Let `1u64 << Square::g1` work directly.
-impl std::ops::Shl<Square> for u64 {
-    type Output = u64;
-    fn shl(self, rhs: Square) -> u64 {
-        self << rhs.0
-    }
-}
-
-impl fmt::Display for Square {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let file = (b'a' + self.0 % 8) as char;
-        let rank = (b'1' + self.0 / 8) as char;
-
-        write!(f, "{file}{rank}")
-    }
-}
-
-impl Square {
-    pub fn from_str(square: &str) -> Option<u32> {
-        let bytes = square.as_bytes();
-
-        if bytes.len() != 2 {
-            return None;
-        }
-
-        let file = bytes[0];
-        let rank = bytes[1];
-
-        if !(b'a'..=b'h').contains(&file)
-            || !(b'1'..=b'8').contains(&rank)
-        {
-            return None;
-        }
-
-        let file_index = file - b'a';
-        let rank_index = rank - b'1';
-
-        Some((rank_index * 8 + file_index) as u32)
-    }
-}
 
 #[derive(Copy, Clone)]
 pub struct Board {
@@ -165,6 +28,66 @@ impl Default for Board {
     fn default() -> Self {
         Self::new()
     }
+}
+
+pub struct ZobristTable {
+    pub pieces: [[u64; 64]; 12],   // [piece_type_0..11][square_0..63]
+    pub side_to_move: u64,          // XORed if it's Black's turn
+    pub castling: [u64; 16],        // [castling_rights 0..15]
+    pub en_passant: [u64; 8],       // [file_0..7] for files a-h
+}
+
+
+// Example global/lazy static instance (e.g., using OnceLock or lazy_static)
+pub static ZOBRIST: OnceLock<ZobristTable> = OnceLock::new();
+
+impl ZobristTable {
+    pub fn new() -> Self {
+        // A simple deterministic PRNG state (e.g., SplitMix64 style generator)
+        let mut rng_state: u64 = 180428938330001 + 1; // Arbitrary non-zero seed
+
+        let mut next_u64 = || {
+            rng_state ^= rng_state << 13;
+            rng_state ^= rng_state >> 7;
+            rng_state ^= rng_state << 17;
+            rng_state
+        };
+
+        // 1. Initialize piece-square randoms (12 pieces * 64 squares)
+        let mut pieces = [[0u64; 64]; 12];
+        for piece in 0..12 {
+            for square in 0..64 {
+                pieces[piece][square] = next_u64();
+            }
+        }
+
+        // 2. Initialize side to move random
+        let side_to_move = next_u64();
+
+        // 3. Initialize castling rights randoms (16 possible u8 configurations)
+        let mut castling = [0u64; 16];
+        for c in &mut castling {
+            *c = next_u64();
+        }
+
+        // 4. Initialize en passant file randoms (Files a-h -> 8 columns)
+        let mut en_passant = [0u64; 8];
+        for ep in &mut en_passant {
+            *ep = next_u64();
+        }
+
+        Self {
+            pieces,
+            side_to_move,
+            castling,
+            en_passant,
+        }
+    }
+}
+
+// Helper accessor function if needed
+pub fn zobrist() -> &'static ZobristTable {
+    ZOBRIST.get_or_init(ZobristTable::new)
 }
 
 impl Board {
@@ -252,6 +175,38 @@ impl Board {
         fen
     }
 
+    /// Get the Zobrist hash of the current board state. This is a pseudo-unique identifier for the position, useful for transposition tables.
+    pub fn get_hash(&self) -> u64 {
+        let mut hash: u64 = 0;
+        let ztable = zobrist();
+
+        // Hash the pieces on their respective squares
+        for (piece_idx, mut bb) in self.bitboards.iter().copied().enumerate() {
+            while bb != 0 {
+                let square = bb.trailing_zeros() as usize;
+                hash ^= ztable.pieces[piece_idx][square];
+                bb &= bb - 1; // Clear the least significant bit
+            }
+        }
+
+        // Hash side to move (if it's Black's turn)
+        if self.to_move == Color::Black {
+            hash ^= ztable.side_to_move;
+        }
+
+        // Hash castling rights (u8 value 0 to 15) but only first 4 bits are actually used
+        hash ^= ztable.castling[(self.castling_rights & 0xF) as usize];
+
+        // Hash en passant file (if an en-passant square is available)
+        if self.en_passant != 0 {
+            let ep_square = self.en_passant.trailing_zeros() as usize;
+            let file = ep_square % 8; // Extract file index (0 to 7 for files a-h)
+            hash ^= ztable.en_passant[file];
+        }
+
+        hash
+    }
+
     // Returns a value between 0.0 (opening) and 1.0 (endgame)
     pub fn get_phase(&self) -> f32 {
         // TODO: Store phase and just update in make/unmake saves recalculating every time
@@ -291,9 +246,6 @@ impl Board {
             Color::Black => (6, 0),
         };
 
-        // Whilst the below is nice, this breaks in the case of promotion
-        // self.bitboards[piece as usize + offset] ^= undo.mv.from() | undo.mv.to(); // Clear the bit at to and set it at from
-
         // Place the piece that was moved back at from
         self.bitboards[piece as usize + offset] |= undo.mv.from();
 
@@ -318,12 +270,12 @@ impl Board {
 
         // If move is a promotion, it identifies the piece type that was promoted to and deletes it from the
         // corresponding bitboard, otherwise defaults to the piece that was moved and deletes it
-        let piece_type = undo.mv.promotes_to().unwrap_or(piece);
-        self.bitboards[piece_type as usize + offset] &= !to;
-
-        if undo.mv.is_promotion() {
+        if let Some(piece_type) = undo.mv.promotes_to() {
+            self.bitboards[piece_type as usize + offset] &= !to;
             self.add_phase_material(PieceType::Pawn);
             self.remove_phase_material(piece_type);
+        } else {
+            self.bitboards[piece as usize + offset] &= !to;
         }
 
         self.to_move = undo.to_move;
@@ -342,62 +294,60 @@ impl Board {
 
         let dest = mv.to();
 
-        let (bb_idx, color_offset, self_color_offset, ep_pawn_idx) = match self.to_move {
-            Color::White => (mv.piece() as usize, 6, 0, Piece::BlackPawn as usize), 
-            Color::Black => (mv.piece() as usize + 6, 0, 6, Piece::WhitePawn as usize)
+        let (bb_idx, color_offset, self_color_offset) = match self.to_move {
+            Color::White => (mv.piece() as usize, 6, 0), 
+            Color::Black => (mv.piece() as usize + 6, 0, 6)
         };
 
-        // move the target piece from the origin to the target square
-        self.bitboards[bb_idx] ^= mv.from() | dest; // Clear the bit at from and set it at to
+        // Move the target piece from the origin to the target square
+        //self.bitboards[bb_idx] ^= mv.from() | dest; // Clear the bit at from and set it at to
+
+        // Ignore bounds checks, guaranteed to be valid indicies if generated from a legal
+        unsafe {
+            *self.bitboards.get_unchecked_mut(bb_idx) ^= mv.from() | dest;
+        }
 
         // Disable future en-passant, this is updated if the move was a double pawn push
         self.en_passant = 0;
 
-        // If the move was a capturing move (includes en-passant) update the captured
-        // pieces bitboard
         if mv.is_capture() {
-            if mv.is_en_passant() { // Capturing an enemy pawn and we can easily work out where
-                let captured_pawn = if self.to_move == Color::White {
-                    south(dest)
-                } else {
-                    north(dest)
-                };
-                self.bitboards[ep_pawn_idx] &= !captured_pawn;
-                
-                // Update the phase to remove a pawn
-                self.remove_phase_material(PieceType::Pawn);
-
-            } else {
+            if !mv.is_en_passant() {
                 let captured_piece = mv.captured_piece().unwrap();
                 let captured_idx = captured_piece as usize + color_offset;
                 self.remove_phase_material(captured_piece);
                 self.bitboards[captured_idx] &= !dest;
+            } else { // Move is en-passant, very rare hence taken out of the hot path here
+                match self.to_move {
+                    Color::White => self.bitboards[Piece::BlackPawn as usize] &= !south(dest),
+                    Color::Black => self.bitboards[Piece::WhitePawn as usize] &= !north(dest),
+                }
+                
+                // Update the phase to remove a pawn
+                self.remove_phase_material(PieceType::Pawn);
             }
-        }
-
-        if mv.is_double_pawn_push() {
+        // If a move is not a capture, it could be castling (but obviously not both)
+        } else if let Some(c) = mv.castling_is() { // Castling (move the rook) - King has already been moved
+            // Either 0, 1, 2 or 3 so just index into the array of XOR masks to move the rook to its new square
+            let rook_idx = PieceType::Rook as usize + self_color_offset;
+            self.bitboards[rook_idx] ^= CASTLING_ROOK_XOR_DEST[c as usize];
+        // If it is not a capture or castling, it could be a promotion (but obviously not both)
+        } else if mv.is_double_pawn_push() {
             self.en_passant = match self.to_move {
                 Color::White => south(dest),
                 Color::Black => north(dest)
-            };
+           };
         }
 
+        // Cannot be put in above branch as captures and promotions are not mutually exclusive
         if let Some(promotion_piece_type) = mv.promotes_to() {
             let promotion_idx = promotion_piece_type as usize + self_color_offset;
             self.bitboards[promotion_idx] |= dest;
 
-            // Delete pawn from mbv.to() (as already moved)
+            // Delete pawn from mv.to() (as already moved)
             self.bitboards[bb_idx] &= !dest;
 
             self.remove_phase_material(PieceType::Pawn);
             self.add_phase_material(promotion_piece_type);
-        }
-
-        // Castling (move the rook) - King has already been moved
-        if let Some(c) = mv.castling_is() {
-            // Either 0, 1, 2 or 3 so just index into the array of XOR masks to move the rook to its new square
-            let rook_idx = PieceType::Rook as usize + self_color_offset;
-            self.bitboards[rook_idx] ^= CASTLING_ROOK_XOR_DEST[c as usize];
         }
 
         // Update castling rights

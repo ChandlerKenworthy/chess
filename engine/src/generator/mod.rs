@@ -3,9 +3,13 @@ pub mod movegen;
 pub mod piece;
 pub mod bitboard;
 pub mod game_move;
+pub mod square;
+pub mod king_safety;
 
 // Re-export commonly moved types for convenience
-pub use board::{Board, Square};
+pub use board::Board;
+pub use square::Square;
 pub use game_move::Move;
 pub use piece::{Piece, Color, PieceType, Castling};
 pub use bitboard::Bitboard;
+pub use king_safety::KingSafety;

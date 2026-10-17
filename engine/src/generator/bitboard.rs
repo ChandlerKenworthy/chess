@@ -1,4 +1,4 @@
-use crate::generator::Square;
+use crate::generator::{Color, Square};
 
 pub type Bitboard = u64; // Bitboards are unsigned 64-bit integers
 
@@ -266,3 +266,104 @@ pub const PROMOTE_QUEEN_AND_CAPTURE:  u32 = 1 << 17 | 1 << 22;
 pub const PROMOTE_ROOK_AND_CAPTURE:   u32 = 1 << 17 | 1 << 23;
 pub const PROMOTE_KNIGHT_AND_CAPTURE: u32 = 1 << 17 | 1 << 24;
 pub const PROMOTE_BISHOP_AND_CAPTURE: u32 = 1 << 17 | 1 << 25;
+
+// For pawn attacks
+const fn generate_pawn_attacks(square: usize, color: Color) -> Bitboard {
+    let origin = 1 << square;
+    match color {
+        Color::White => north(east(origin) | west(origin)),
+        Color::Black => south(east(origin) | west(origin))
+    }
+    
+}
+
+const fn generate_king_moves(square: usize) -> Bitboard {
+    let origin = 1 << square;
+    north(origin) | south(origin) | east(origin) | west(origin) |
+    north(east(origin)) | north(west(origin)) | south(east(origin)) |
+    south(west(origin))
+}
+
+pub const KING_MOVES: [Bitboard; 64] = {
+    let mut table = [0; 64];
+
+    let mut square = 0;
+    while square < 64 {
+        table[square] = generate_king_moves(square);
+        square += 1;
+    }
+
+    table
+};
+
+pub const PAWN_ATTACKS: [[Bitboard; 64]; 2] = {
+    let mut white_table = [0; 64];
+    let mut black_table = [0; 64];
+
+    let mut square = 0;
+    while square < 64 {
+        white_table[square] = generate_pawn_attacks(square, Color::White);
+        black_table[square] = generate_pawn_attacks(square, Color::Black);
+        square += 1;
+    }
+
+    [white_table, black_table]
+};
+
+
+/// Get the bits between a and b, but not including a or b. If a and b are not aligned, returns 0.
+const fn generate_between_bb(a: usize, b: usize) -> Bitboard {
+    if a == b {
+        return 0;
+    }
+
+    let fa = (a % 8) as i32;
+    let fb = (b % 8) as i32;
+    let ra = (a / 8) as i32;
+    let rb = (b / 8) as i32;
+
+    // Check for rank, file or diagonal alignment
+    let df = fb - fa;
+    let dr = rb - ra;
+
+    if df != 0 && dr != 0 && df.abs() != dr.abs() {
+        return 0; // Not aligned
+    }
+
+    // Now we know the bits align somehow, we can generate the between bitboard
+    let step_file = df.signum(); // either +1, 0 or -1
+    let step_rank = dr.signum(); // either +1, 0 or -1
+
+    let mut file = fa + step_file;
+    let mut rank = ra + step_rank;
+    let mut between = 0u64;
+
+    // Walk from a towards b, excluding both endpoints.
+    while file != fb || rank != rb {
+        let square = (rank * 8 + file) as usize;
+        between |= 1u64 << square;
+
+        file += step_file;
+        rank += step_rank;
+    }
+
+    between
+}
+
+pub const BETWEEN_BB: [[Bitboard; 64]; 64] = {
+    let mut table = [[0u64; 64]; 64];
+
+    let mut a = 0;
+    while a < 64 {
+        let mut b = 0;
+
+        while b < 64 {
+            table[a][b] = generate_between_bb(a, b);
+            b += 1;
+        }
+
+        a += 1;
+    }
+
+    table
+};

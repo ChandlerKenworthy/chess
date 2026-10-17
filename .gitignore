@@ -1,10 +1,14 @@
 # General
 TODO.txt
 
+# Profiling data
+profile.json.gz
+
 # Chess engine (backend)
 /engine/target
 /engine/test_results
 target/
+/engine/examples/*.rs
 
 # frontend related
 .DS_Store
