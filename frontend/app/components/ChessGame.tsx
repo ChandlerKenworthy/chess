@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Chessboard, type PieceDropHandlerArgs } from "react-chessboard";
 import axios from "axios";
-import { undoMoveHandler } from "./GameHandlers";
+import { makeComptuerMove, undoMoveHandler } from "./GameHandlers";
 
 interface ChessGame {
     fen: string
@@ -29,7 +29,9 @@ export default function ChessGame() {
     const [game, setGame] = useState<ChessGame>(startGameState);
 
     function resetGame() {
-        setGame(startGameState);
+        // setGame(startGameState);
+        // Also needs to update the backend...
+        console.log("Not implemented yet");
     }
 
     async function onPieceDrop({
@@ -80,6 +82,13 @@ export default function ChessGame() {
                             hover:bg-slate-100"
                 >
                 Undo
+                </button>
+                <button
+                    onClick={() => makeComptuerMove(setGame)}
+                    className="rounded-lg border px-4 py-2
+                            hover:bg-slate-100"
+                >
+                    Computer Move
                 </button>
             </div>
         </div>
