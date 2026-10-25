@@ -1,48 +1,29 @@
 import { useState } from "react";
 import { Chessboard, type PieceDropHandlerArgs } from "react-chessboard";
 import axios from "axios";
-import { makeComptuerMove, undoMoveHandler } from "./GameHandlers";
+import { makeComptuerMove, makeMove, resetGame, undoMoveHandler } from "./GameHandlers";
+import { startGameState, type GameState } from "~/types";
 
-interface ChessGame {
-    fen: string
-}
 
-const startGameState = {
-    fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-} as ChessGame;
-
-interface MoveRequest {
-  from: string;
-  to: string;
-}
-
-async function makeMove(move: MoveRequest): Promise<string> {
-  const response = await axios.post<string>(
-    "/api/move",
-    move
-  );
-
-  return response.data;
-}
 
 export default function ChessGame() {
-    const [game, setGame] = useState<ChessGame>(startGameState);
-
-    function resetGame() {
-        // setGame(startGameState);
-        // Also needs to update the backend...
-        console.log("Not implemented yet");
+    const [game, setGame] = useState<GameState>(startGameState);
+    
+    const alert_illegal_move = () => {
+        alert("That move was illegal, please try again.")
     }
 
     async function onPieceDrop({
         piece, sourceSquare, targetSquare
     }: PieceDropHandlerArgs): Promise<boolean> {
         try {
-            const fen = await makeMove({
+            const was_legal_move = await makeMove({
                 from: sourceSquare,
-                to: targetSquare,
-            });
-            setGame((prevGame) => ({ ...prevGame, fen }));
+                to: targetSquare!,
+            }, setGame);
+            if (!was_legal_move) {
+                alert_illegal_move();
+            }
         } catch (error) {
             if (axios.isAxiosError(error)) {
                 console.error(
@@ -60,6 +41,13 @@ export default function ChessGame() {
 
     return (
         <div className="mx-auto w-full max-w-xl space-y-4">
+            <div className="flex align-center justify-center gap-3">
+                <p className={
+                    game.status.type == "ongoing" ? "text-green-600" :
+                    game.status.type == "stalemate" ? "text-zinc-500" :
+                    "text-red-600"
+                }>{game.status.type}</p>
+            </div>
             <Chessboard
                 options={{
                     position: game.fen,
@@ -69,7 +57,7 @@ export default function ChessGame() {
             />
             <div className="flex gap-3">
                 <button
-                onClick={resetGame}
+                onClick={() => resetGame(setGame)}
                 className="rounded-lg bg-slate-800 px-4 py-2
                             text-white hover:bg-slate-700"
                 >

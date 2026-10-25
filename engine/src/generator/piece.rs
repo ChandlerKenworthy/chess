@@ -1,7 +1,9 @@
 use std::ops::Not;
+use serde::Serialize;
 
 #[repr(u8)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Color {
     White = 0,
     Black = 1

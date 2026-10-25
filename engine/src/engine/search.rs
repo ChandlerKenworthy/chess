@@ -1,7 +1,17 @@
+use crate::engine::Engine;
 use crate::engine::evaluation::{INFINITY, evaluate};
+use crate::engine::game_status::GameStatus;
 use crate::generator::movegen::{Generator, MoveList};
 use crate::generator::{Color, Move};
 use std::cmp::Reverse;
+
+pub struct SearchResult {
+    pub score: f32,
+    pub best_move: Option<Move>,
+    pub status: GameStatus,
+}
+
+
 
 const PROMOTION_SCORE: i32 = 100_000;
 const CAPTURE_SCORE: i32 = 10_000;
@@ -46,11 +56,6 @@ pub fn negamax(generator: &mut Generator, depth: i32, mut alpha: f32, beta: f32)
 
     // Generate all moves for this position
     let mut moves = generator.get_moves();
-    
-    // If depth > 1, order the moves to prune faster
-    if depth > 1 {    
-        order_moves(&mut moves);
-    }
 
     // Terminal state handling (0 legal moves available)
     if moves.is_empty() {
@@ -62,6 +67,11 @@ pub fn negamax(generator: &mut Generator, depth: i32, mut alpha: f32, beta: f32)
             // Stalemate
             return (0.0, None);
         }
+    }
+    
+    // If depth > 1, order the moves to prune faster
+    if depth > 1 {    
+        order_moves(&mut moves);
     }
 
     let mut best_move: Option<Move> = None;
@@ -93,3 +103,84 @@ pub fn negamax(generator: &mut Generator, depth: i32, mut alpha: f32, beta: f32)
     (best_score, best_move)
 }
 
+
+impl Engine {
+    /// Determine the state of play of the game e.g. ongoing or checkmate etc.
+    pub fn get_game_status(&self, moves: &MoveList) -> GameStatus {
+        if !moves.is_empty() {
+            return GameStatus::Ongoing;
+        }
+        if self.generator.is_in_check(self.generator.b.to_move) {
+            let winner = !self.generator.b.to_move;
+            GameStatus::Checkmate { winner }
+        } else {
+            GameStatus::Stalemate
+        }
+    }
+
+    /// Root search function
+    pub fn get_best_move(&mut self, depth: i32) -> SearchResult {
+        assert!(depth > 0, "Search depth must be positive");
+
+        let side_to_move = self.generator.b.to_move;
+
+        // Generate the root moves
+        let mut moves = self.generator.get_moves();
+
+        // Handle terminal (game-has-ended) positions
+        // let status = self.get_game_status(); // TODO: Double call to get_moves not needed
+
+        if moves.is_empty() {
+            let status = if self.generator.is_in_check(side_to_move) {
+                let winner = !side_to_move;
+                GameStatus::Checkmate { winner }    
+            } else {
+                GameStatus::Stalemate
+            };
+
+            let score = match status {
+                GameStatus::Checkmate { .. } => -INFINITY as f32,
+                GameStatus::Stalemate => 0.0,
+                GameStatus::Ongoing => unreachable!()
+            };
+
+            return SearchResult { score, best_move: None, status };
+        }
+
+        // Begin the search
+        order_moves(&mut moves);
+
+        let mut best_move = None;
+        let mut best_score = -INFINITY as f32;
+        let mut alpha = -INFINITY as f32;
+        let beta = INFINITY as f32;
+
+        // This loop is effectively the depth-1 search
+        for mv in moves {
+            let undo = self.generator.b.make_move(mv);
+
+            let (score, _) = negamax(&mut self.generator, depth - 1, -beta, -alpha);
+            let score = -score;
+        
+            self.generator.b.unmake_move(undo);
+
+            // This move was the best so far
+            if score > best_score {
+                best_score = score;
+                best_move = Some(mv)
+            }
+
+            // Alpha-beta prune
+            if score > alpha {
+                alpha = score;
+            }
+        }
+
+        SearchResult { 
+            score: best_score, 
+            best_move, 
+            status: GameStatus::Ongoing
+        }
+    }
+
+}

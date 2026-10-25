@@ -1,10 +1,9 @@
 pub mod evaluation;
 pub mod search;
 pub mod pst;
+pub mod game_status;
 
-use crate::engine::search::{negamax};
-use crate::engine::evaluation::{INFINITY};
-use crate::generator::{Board, Move};
+use crate::generator::{Board};
 use crate::generator::movegen::{Generator};
 
 pub struct Engine {
@@ -16,20 +15,5 @@ impl Engine {
         Self {
             generator: Generator::new(board),
         }
-    }
-
-    pub fn get_best_move(&mut self, depth: i32) -> Move {
-        let (_, mv) = negamax(&mut self.generator, depth, -INFINITY as f32, INFINITY as f32);
-
-        // Format the score nicely
-        //let score = if score >= 0.0 {
-        //    format!("+{:.1}", score / 100.0)
-        //} else {
-        //    format!("-{:.1}", -score / 100.0)
-        //};
-
-        //println!("Evaluation: {}", score);
-        mv.expect("No available moves")
-        
     }
 }

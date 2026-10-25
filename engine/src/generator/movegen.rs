@@ -107,13 +107,11 @@ impl Generator {
         Generator { b, color_offset_idx, oppn_color_offset_idx, self_occ: 0u64, not_self_occ: !0u64, oppn_occ: 0u64, total_occ: 0u64, enemy_king: 0u64 }
     }
 
-    pub fn get_move_is_legal(&mut self, mv: &mut Move) -> bool {
-        let legal_moves = self.get_moves();
-
+    pub fn get_move_is_legal(&mut self, mv: &mut Move, legal_moves: &MoveList) -> bool {
         for legal_mv in legal_moves {
             // if lorigin = origin. and lto = to, then it's legal, update mv as legal_mv
             if legal_mv.from() == mv.from() && legal_mv.to() == mv.to() {
-                *mv = legal_mv;
+                *mv = *legal_mv;
                 return true;
             }
         }
