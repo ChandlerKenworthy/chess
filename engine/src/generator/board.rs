@@ -395,41 +395,22 @@ impl Board {
     }
 
     pub fn from_fen(fen: &str) -> Option<Self> {
-        let mut parts = fen.split_whitespace();
-        let placement = parts.next()?;
-        let side = parts.next().unwrap_or("w");
-        let castling = parts.next().unwrap_or("-");
-        let ep = parts.next().unwrap_or("-");
+        let parts: Vec<&str> = fen.split_whitespace().collect();
 
-        let mut bbs: [Bitboard; 12] = [0; 12];
-        let mut rank: i32 = 7;
-        let mut file: i32 = 0;
+        // A FEN must contain exactly six fields.
+        if parts.len() != 6 {
+            return None;
+        }
 
-        for c in placement.chars() {
-            if c == '/' {
-                rank -= 1;
-                file = 0;
-                continue;
-            }
-            if let Some(n) = c.to_digit(10) {
-                file += n as i32;
-                continue;
-            }
-            let piece = match c {
-                'p' => Piece::BlackPawn,   'n' => Piece::BlackKnight,
-                'b' => Piece::BlackBishop, 'r' => Piece::BlackRook,
-                'q' => Piece::BlackQueen,  'k' => Piece::BlackKing,
-                'P' => Piece::WhitePawn,   'N' => Piece::WhiteKnight,
-                'B' => Piece::WhiteBishop, 'R' => Piece::WhiteRook,
-                'Q' => Piece::WhiteQueen,  'K' => Piece::WhiteKing,
-                _ => return None,
-            };
-            if !(0..8).contains(&rank) || !(0..8).contains(&file) {
-                return None;
-            }
-            let sq = (rank * 8 + file) as u32;
-            bbs[piece as usize] |= 1u64 << sq;
-            file += 1; // <-- the missing line
+        let placement = parts[0];
+        let side = parts[1];
+        let castling = parts[2];
+        let ep = parts[3];
+        let halfmove_clock: u32 = parts[4].parse().ok()?;
+        let fullmove_number: u32 = parts[5].parse().ok()?;
+
+        if fullmove_number == 0 {
+            return None;
         }
 
         let to_move = match side {
@@ -438,30 +419,142 @@ impl Board {
             _ => return None,
         };
 
-        // Adjust these bits to match however your engine encodes castling rights
-        let mut castling_rights = 0u8;
-        for c in castling.chars() {
-            match c { // [White QS][White KS][Black QS][Black KS][----]
-                'K' => castling_rights |= WHITE_KS,
-                'Q' => castling_rights |= WHITE_QS,
-                'k' => castling_rights |= BLACK_KS,
-                'q' => castling_rights |= BLACK_QS,
-                _ => {}
+        // Parse piece placement.
+        let ranks: Vec<&str> = placement.split('/').collect();
+
+        if ranks.len() != 8 {
+            return None;
+        }
+
+        let mut bbs: [Bitboard; 12] = [0; 12];
+
+        for (rank_idx, rank_str) in ranks.iter().enumerate() {
+            let mut file: u32 = 0;
+
+            for c in rank_str.chars() {
+                if let Some(n) = c.to_digit(10) {
+                    // FEN digits must be between 1 and 8.
+                    if !(1..=8).contains(&n) {
+                        return None;
+                    }
+
+                    file += n;
+                } else {
+                    let piece = match c {
+                        'p' => Piece::BlackPawn,
+                        'n' => Piece::BlackKnight,
+                        'b' => Piece::BlackBishop,
+                        'r' => Piece::BlackRook,
+                        'q' => Piece::BlackQueen,
+                        'k' => Piece::BlackKing,
+                        'P' => Piece::WhitePawn,
+                        'N' => Piece::WhiteKnight,
+                        'B' => Piece::WhiteBishop,
+                        'R' => Piece::WhiteRook,
+                        'Q' => Piece::WhiteQueen,
+                        'K' => Piece::WhiteKing,
+                        _ => return None,
+                    };
+
+                    if file >= 8 {
+                        return None;
+                    }
+
+                    // Pawns cannot occupy the first or eighth rank.
+                    if matches!(piece, Piece::WhitePawn | Piece::BlackPawn)
+                        && (rank_idx == 0 || rank_idx == 7)
+                    {
+                        return None;
+                    }
+
+                    let square = ((7 - rank_idx) as u32) * 8 + file;
+                    let mask = 1u64 << square;
+
+                    // Prevent overlapping pieces.
+                    if bbs.iter().any(|bb| bb & mask != 0) {
+                        return None;
+                    }
+
+                    bbs[piece as usize] |= mask;
+                    file += 1;
+                }
+
+                if file > 8 {
+                    return None;
+                }
+            }
+
+            // Each rank must describe exactly eight squares.
+            if file != 8 {
+                return None;
             }
         }
 
+        // Exactly one king of each colour must exist.
+        if bbs[Piece::WhiteKing as usize].count_ones() != 1
+            || bbs[Piece::BlackKing as usize].count_ones() != 1
+        {
+            return None;
+        }
+
+        // Validate castling rights.
+        let mut castling_rights = 0u8;
+
+        if castling != "-" {
+            for c in castling.chars() {
+                let right = match c {
+                    'K' => WHITE_KS,
+                    'Q' => WHITE_QS,
+                    'k' => BLACK_KS,
+                    'q' => BLACK_QS,
+                    _ => return None,
+                };
+
+                // Duplicate castling rights are invalid.
+                if castling_rights & right != 0 {
+                    return None;
+                }
+
+                castling_rights |= right;
+            }
+        }
+
+        // Validate en passant target.
         let en_passant = if ep == "-" {
             0u64
         } else {
-            let b = ep.as_bytes();
-            if b.len() != 2 { return None; }
-            let f = b[0].checked_sub(b'a')? as u32;
-            let r = b[1].checked_sub(b'1')? as u32;
-            if f > 7 || r > 7 { return None; }
-            1u64 << (r * 8 + f)
+            let bytes = ep.as_bytes();
+
+            if bytes.len() != 2 {
+                return None;
+            }
+
+            let file = bytes[0].checked_sub(b'a')? as u32;
+            let rank = bytes[1].checked_sub(b'1')? as u32;
+
+            if file > 7 || !(rank == 2 || rank == 5) {
+                return None;
+            }
+
+            // En passant targets must be on rank 6 when White is to move,
+            // or rank 3 when Black is to move.
+            if (to_move == Color::White && rank != 5)
+                || (to_move == Color::Black && rank != 2)
+            {
+                return None;
+            }
+
+            1u64 << (rank * 8 + file)
         };
 
-        let mut b = Board { bitboards: bbs, to_move, en_passant, castling_rights, phase: 0.0 };
+        let mut b = Board {
+            bitboards: bbs,
+            to_move,
+            en_passant,
+            castling_rights,
+            phase: 0.0,
+        };
+
         b.phase = b.get_phase();
 
         Some(b)

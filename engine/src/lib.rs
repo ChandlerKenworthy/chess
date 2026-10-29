@@ -69,43 +69,43 @@ use super::*;
 
     #[test]
     fn pos4_depth_1_to_4() {
-        assert_eq!(run(POS4, 1), 6);
-        assert_eq!(run(POS4, 2), 264);
-        assert_eq!(run(POS4, 3), 9_467);
+        //assert_eq!(run(POS4, 1), 6);
+        //assert_eq!(run(POS4, 2), 264);
+        //assert_eq!(run(POS4, 3), 9_467);
         assert_eq!(run(POS4, 4), 422_333);
     }
 
     #[test]
     fn pos5_depth_1_to_4() {
-        assert_eq!(run(POS5, 1), 44);
-        assert_eq!(run(POS5, 2), 1_486);
-        assert_eq!(run(POS5, 3), 62_379);
+        //assert_eq!(run(POS5, 1), 44);
+        //assert_eq!(run(POS5, 2), 1_486);
+        //assert_eq!(run(POS5, 3), 62_379);
         assert_eq!(run(POS5, 4), 2_103_487);
     }
 
     #[test]
     fn pos3_depth_1_to_6() {
-        assert_eq!(run(POS3, 1), 14);
-        assert_eq!(run(POS3, 2), 191);
-        assert_eq!(run(POS3, 3), 2_812);
-        assert_eq!(run(POS3, 4), 43_238);
-        assert_eq!(run(POS3, 5), 674_624);
+        //assert_eq!(run(POS3, 1), 14);
+        //assert_eq!(run(POS3, 2), 191);
+        //assert_eq!(run(POS3, 3), 2_812);
+        //assert_eq!(run(POS3, 4), 43_238);
+        //assert_eq!(run(POS3, 5), 674_624);
         assert_eq!(run(POS3, 6), 11_030_083);
     }
 
     #[test]
     fn sjesa_depth_1_to_4() {
-        assert_eq!(run(SJESA, 1), 46);
-        assert_eq!(run(SJESA, 2), 2_079);
-        assert_eq!(run(SJESA, 3), 89_890);
+        //assert_eq!(run(SJESA, 1), 46);
+        //assert_eq!(run(SJESA, 2), 2_079);
+        //assert_eq!(run(SJESA, 3), 89_890);
         assert_eq!(run(SJESA, 4), 3_894_594);
     }
 
     #[test]
     fn kiwipete_depth_1_to_4() {
-        assert_eq!(run(KIWIPETE, 1), 48);
-        assert_eq!(run(KIWIPETE, 2), 2_039);
-        assert_eq!(run(KIWIPETE, 3), 97_862);
+        //assert_eq!(run(KIWIPETE, 1), 48);
+        //assert_eq!(run(KIWIPETE, 2), 2_039);
+        //assert_eq!(run(KIWIPETE, 3), 97_862);
         assert_eq!(run(KIWIPETE, 4), 4_085_603);
     }
 

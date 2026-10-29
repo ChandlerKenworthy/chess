@@ -1,5 +1,5 @@
 import axios from "axios";
-import { type GameStateResponse, type GameState, type MakeMoveResponse, type MoveRequest } from "~/types";
+import { type GameStateResponse, type GameState, type MakeMoveResponse, type MoveRequest, type FenRequest } from "~/types";
 
 function updateGameState(
     setGame: React.Dispatch<React.SetStateAction<GameState>>,
@@ -13,8 +13,34 @@ function updateGameState(
             result.status.type === "checkmate"
                 ? result.status.winner
                 : undefined,
+        evaluation: result.eval,
     }));
     return result.move_was_legal;
+}
+
+export async function setFenHandler(
+    fen: FenRequest,
+    setGame: React.Dispatch<React.SetStateAction<GameState>>
+) {
+    try {
+        const response = await axios.post<GameStateResponse>(
+            "/api/from_fen",
+            fen
+        );
+
+        const result = response.data;
+
+        setGame({
+            fen: result.fen,
+            winner: undefined,
+            status: result.status,
+            evaluation: 0.0, // not yet determined
+        });
+    } catch (error) {
+        // Invalid FEN or another request error: leave the game state unchanged.
+        alert("Invalid FEN provided");
+        return;
+    }
 }
 
 export async function resetGame(setGame: React.Dispatch<React.SetStateAction<GameState>>) {
@@ -28,6 +54,7 @@ export async function resetGame(setGame: React.Dispatch<React.SetStateAction<Gam
         fen: result.fen,
         winner: undefined,
         status: result.status,
+        evaluation: 0.0, // not yet determined
     });
 }
 

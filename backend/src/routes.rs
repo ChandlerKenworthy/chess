@@ -1,8 +1,10 @@
 use chess_engine::engine::game_status::GameStatus;
+use chess_engine::generator::Color;
 use chess_engine::generator::Move;
 use salvo::prelude::*;
 use salvo::affix_state;
 use crate::requests::GameStateResponse;
+use crate::requests::LoadFenRequest;
 use crate::requests::MakeMoveResponse;
 use crate::requests::MoveRequest;
 use crate::state::SharedState;
@@ -36,6 +38,30 @@ pub fn router(state: SharedState) -> Router {
             Router::with_path("undo")
             .post(undo_move)
         )
+        .push(
+            Router::with_path("from_fen")
+            .post(load_fen)
+        )
+}
+
+#[handler]
+async fn load_fen(
+    depot: &mut Depot, 
+    req: &mut Request
+) -> Result<Json<GameStateResponse>, StatusError> {
+    let state = depot
+        .get_typed::<SharedState>()
+        .expect("AppState should be injected");
+    let mut state = state.lock().await;
+
+    let fen_request: LoadFenRequest = req.parse_json().await.expect("Failed to parse JSON");
+
+    let game_state = state.from_fen(fen_request.fen);
+
+    match game_state {
+        Ok(g) => Ok(Json(g)),
+        Err(_) => Err(StatusError::bad_request())
+    }
 }
 
 #[handler]
@@ -116,7 +142,14 @@ async fn make_computer_move(
         )
     };
 
-    Json(MakeMoveResponse { fen, status, move_was_legal })
+    // Note that search.score is always positive as it is flipped over per colour
+    // so multiply by -1 for black else 1
+    // flipped as to_move is not who just made a move
+    let sign = match state.engine.generator.b.to_move {
+        Color::White => -1.0,
+        Color::Black => 1.0
+    };
+    Json(MakeMoveResponse { fen, status, move_was_legal, eval: sign * search.score })
 }
 
 #[handler]
@@ -178,7 +211,7 @@ async fn make_move(depot: &mut Depot, req: &mut Request) -> Json<MakeMoveRespons
         )
     };
 
-    Json(MakeMoveResponse { fen, status, move_was_legal })
+    Json(MakeMoveResponse { fen, status, move_was_legal, eval: 0.0 })
 }
 
 #[handler]

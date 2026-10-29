@@ -7,6 +7,11 @@ pub struct MoveRequest {
     pub to: String
 }
 
+#[derive(Deserialize)]
+pub struct LoadFenRequest {
+    pub fen: String
+}
+
 #[derive(Serialize)]
 pub struct GameStateResponse {
     pub fen: String,
@@ -19,4 +24,5 @@ pub struct MakeMoveResponse {
     pub fen: String, // Resulting FEN after the move was (or wasn't due to terminal game state) made
     pub status: GameStatus,
     pub move_was_legal: bool, // Did the user/computer attempt to make an illegal move
+    pub eval: f32 // current evaluatin, in centipawns
 }

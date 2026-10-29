@@ -1,10 +1,9 @@
 import { useState } from "react";
 import { Chessboard, type PieceDropHandlerArgs } from "react-chessboard";
 import axios from "axios";
-import { makeComptuerMove, makeMove, resetGame, undoMoveHandler } from "./GameHandlers";
+import { makeComptuerMove, makeMove, resetGame, setFenHandler, undoMoveHandler } from "./GameHandlers";
 import { startGameState, type GameState } from "~/types";
-
-
+import FenInput from "./fenInput";
 
 export default function ChessGame() {
     const [game, setGame] = useState<GameState>(startGameState);
@@ -46,7 +45,10 @@ export default function ChessGame() {
                     game.status.type == "ongoing" ? "text-green-600" :
                     game.status.type == "stalemate" ? "text-zinc-500" :
                     "text-red-600"
-                }>{game.status.type}</p>
+                }>{game.status.type} (Evaluation = {game.evaluation > 0 ? "+" : ""}{(game.evaluation / 100).toFixed(1)})</p>
+            </div>
+            <div className="flex align-center justify-center gap-3">
+                <FenInput onLoadFen={(fen: string) => setFenHandler({fen: fen}, setGame)} />
             </div>
             <Chessboard
                 options={{
