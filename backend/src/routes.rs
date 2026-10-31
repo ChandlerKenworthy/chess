@@ -139,6 +139,11 @@ async fn make_computer_move(
             state.engine.generator.b.get_fen(),
             search.status,
             false // computer had no legal moves to make
+        ),
+        GameStatus::Draw(..) => (
+            state.engine.generator.b.get_fen(),
+            search.status,
+            false // no legal moves game is over
         )
     };
 
@@ -205,6 +210,11 @@ async fn make_move(depot: &mut Depot, req: &mut Request) -> Json<MakeMoveRespons
             false
         ),
         GameStatus::Checkmate { winner: _ } => (
+            state.engine.generator.b.get_fen(),
+            status,
+            false
+        ),
+        GameStatus::Draw(..) => (
             state.engine.generator.b.get_fen(),
             status,
             false

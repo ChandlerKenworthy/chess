@@ -1,6 +1,6 @@
 use crate::engine::Engine;
 use crate::engine::evaluation::{INFINITY, evaluate};
-use crate::engine::game_status::GameStatus;
+use crate::engine::game_status::{GameStatus};
 use crate::generator::movegen::{Generator, MoveList};
 use crate::generator::{Color, Move};
 use std::cmp::Reverse;
@@ -10,8 +10,6 @@ pub struct SearchResult {
     pub best_move: Option<Move>,
     pub status: GameStatus,
 }
-
-
 
 const PROMOTION_SCORE: i32 = 100_000;
 const CAPTURE_SCORE: i32 = 10_000;
@@ -107,14 +105,18 @@ pub fn negamax(generator: &mut Generator, depth: i32, mut alpha: f32, beta: f32)
 impl Engine {
     /// Determine the state of play of the game e.g. ongoing or checkmate etc.
     pub fn get_game_status(&self, moves: &MoveList) -> GameStatus {
-        if !moves.is_empty() {
-            return GameStatus::Ongoing;
+        if moves.is_empty() {
+            // checkmate or stalemate
+            return match self.generator.is_in_check(self.generator.b.to_move) {
+                true => GameStatus::Checkmate { winner: !self.generator.b.to_move },
+                false => GameStatus::Stalemate
+            };
         }
-        if self.generator.is_in_check(self.generator.b.to_move) {
-            let winner = !self.generator.b.to_move;
-            GameStatus::Checkmate { winner }
-        } else {
-            GameStatus::Stalemate
+
+        // Check potential draw conditions
+        match self.generator.b.get_draw_reason() {
+            Some(reason) => GameStatus::Draw(reason),
+            None => GameStatus::Ongoing
         }
     }
 
@@ -122,31 +124,16 @@ impl Engine {
     pub fn get_best_move(&mut self, depth: i32) -> SearchResult {
         assert!(depth > 0, "Search depth must be positive");
 
-        let side_to_move = self.generator.b.to_move;
-
         // Generate the root moves
         let mut moves = self.generator.get_moves();
 
-        // Handle terminal (game-has-ended) positions
-        // let status = self.get_game_status(); // TODO: Double call to get_moves not needed
-
-        if moves.is_empty() {
-            let status = if self.generator.is_in_check(side_to_move) {
-                let winner = !side_to_move;
-                GameStatus::Checkmate { winner }    
-            } else {
-                GameStatus::Stalemate
-            };
-
-            let score = match status {
-                GameStatus::Checkmate { .. } => -INFINITY as f32,
-                GameStatus::Stalemate => 0.0,
-                GameStatus::Ongoing => unreachable!()
-            };
-
-            return SearchResult { score, best_move: None, status };
+        // Get the current game status if it is not Ongoing then the game has reached a 
+        // terminal point e.g. stalemate, draw etc.
+        let status = self.get_game_status(&moves);
+        if status != GameStatus::Ongoing {
+            return SearchResult { score: status.score(), best_move: None, status };
         }
-
+        
         // Begin the search
         order_moves(&mut moves);
 

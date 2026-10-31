@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use chess_engine::{engine::{Engine, game_status::GameStatus}, generator::{Board, Color, board::UndoState}};
+use chess_engine::{engine::{Engine, game_status::GameStatus}, generator::{Board, board::UndoState}};
 
 use crate::requests::GameStateResponse;
 
@@ -41,7 +41,8 @@ impl AppState {
 
                 // Fling it back to the frontend
                 let winner = match game_state {
-                    GameStatus::Stalemate => Some(!self.engine.generator.b.to_move),
+                    GameStatus::Stalemate => None,
+                    GameStatus::Draw(..) => None, // no winner
                     GameStatus::Checkmate{ winner } => Some(winner),
                     GameStatus::Ongoing => None
                 };

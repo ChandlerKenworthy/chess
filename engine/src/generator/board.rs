@@ -1,5 +1,5 @@
 use std::{ops::{Index, IndexMut}, println, sync::OnceLock};
-use crate::generator::{Bitboard, Castling, Color, Move, PieceType, bitboard::{BLACK_KS, BLACK_QS, CASTLING_RIGHTS_MASK, CASTLING_ROOK_XOR_DEST, STARTING_BOARD, WHITE_KS, WHITE_QS, north, south}};
+use crate::{engine::game_status::DrawReason, generator::{Bitboard, Castling, Color, Move, PieceType, bitboard::{BLACK_KS, BLACK_QS, CASTLING_RIGHTS_MASK, CASTLING_ROOK_XOR_DEST, STARTING_BOARD, WHITE_KS, WHITE_QS, north, south}}};
 use super::piece::Piece;
 
 #[derive(Copy, Clone)]
@@ -9,6 +9,8 @@ pub struct Board {
     pub en_passant: Bitboard, // the square a pawn may move to on the next move completing an en-passant capture (empty if not available)
     pub castling_rights: u8, // [White QS][White KS][Black QS][Black KS][----]
     pub phase: f32,
+    pub halfmove_clock: u16, // a half-move = a ply
+    pub fullmove_clock: u16 // each time black moves, increment
 }
 
 pub struct UndoState {
@@ -19,6 +21,8 @@ pub struct UndoState {
     pub en_passant: Bitboard,
     pub castling_rights: u8,
     pub phase: f32,
+    pub halfmove_clock: u16,
+    pub fullmove_clock: u16,
 }
 
 const PHASE_WEIGHTS: [i32; 6] = [0, 1, 1, 2, 4, 0]; // P, N, B, R, Q, K
@@ -36,7 +40,6 @@ pub struct ZobristTable {
     pub castling: [u64; 16],        // [castling_rights 0..15]
     pub en_passant: [u64; 8],       // [file_0..7] for files a-h
 }
-
 
 // Example global/lazy static instance (e.g., using OnceLock or lazy_static)
 pub static ZOBRIST: OnceLock<ZobristTable> = OnceLock::new();
@@ -91,6 +94,75 @@ pub fn zobrist() -> &'static ZobristTable {
 }
 
 impl Board {
+    /// Get if the current board state is a draw due to insufficient material,
+    /// positional repetition (three-fold rep.) or 50-move rule
+    pub fn get_draw_reason(&self) -> Option<DrawReason> {
+        if self.is_insufficient_material() {
+            return Some(DrawReason::InsufficientMaterial);
+        }
+
+        if self.is_fifty_move_draw() {
+            return Some(DrawReason::FiftyMoveRule);
+        }
+
+        // TODO: Handle repitition here
+
+        None
+    }
+
+    pub fn is_fifty_move_draw(&self) -> bool {
+        self.halfmove_clock >= 100
+    }
+
+    /// Get if a position is a draw via FIDE's insufficient material rules
+    pub fn is_insufficient_material(&self) -> bool {
+        // Check for the following dead positions
+        // King vs King
+        // King & Bishop vs King
+        // King & Knight vs King
+        // King & Bishop vs King & Bishop (if on the same square colour)
+
+        let is_queen = (self.bitboards[Piece::WhiteQueen as usize] | self.bitboards[Piece::BlackQueen as usize]) != 0;
+        let is_rook = (self.bitboards[Piece::WhiteRook as usize] | self.bitboards[Piece::BlackRook as usize]) != 0;
+        let is_pawn = (self.bitboards[Piece::WhitePawn as usize] | self.bitboards[Piece::BlackPawn as usize]) != 0;
+        if is_queen | is_rook | is_pawn {
+            return false;
+        }
+
+        // No queens, no rooks and no pawns at this point only
+        // king, bishops and knights
+        let n_bishops_white = self.bitboards[Piece::WhiteBishop as usize].count_ones();
+        let n_bishops_black = self.bitboards[Piece::BlackBishop as usize].count_ones();
+        let n_bishops = n_bishops_white + n_bishops_black;
+        let n_knights_white = self.bitboards[Piece::WhiteKnight as usize].count_ones();
+        let n_knights_black = self.bitboards[Piece::BlackKnight as usize].count_ones();
+        let n_knights = n_knights_white + n_knights_black;
+
+        if n_bishops == 0 && n_knights == 0 {
+            return true; // king vs king
+        }
+
+        if n_bishops == 1 && n_knights == 0 {
+            // Exactly 1 bishop so its a king vs king + bishop
+            return true;
+        }
+
+        if n_bishops == 0 && n_knights == 1 {
+            return true;
+        }
+
+        if n_bishops_white == 1 && n_bishops_black == 1 && n_knights == 0 {
+            // Potential for a king + b vs king + b draw, but only if the bishops
+            // are on the same colour square
+            let w_bishop_idx = self.bitboards[Piece::WhiteBishop as usize].trailing_zeros();
+            let b_bishop_idx = self.bitboards[Piece::BlackBishop as usize].trailing_zeros();
+
+            return (w_bishop_idx % 2) == (b_bishop_idx % 2);
+        }
+
+        return false;
+    }
+
     pub fn get_fen(&self) -> String {
         let mut fen = String::new();
 
@@ -170,7 +242,7 @@ impl Board {
         }
 
         // 5 & 6. Halfmove clock and Fullmove number (Defaults)
-        fen.push_str(" 0 1");
+        fen.push_str(&format!(" {} {}", self.halfmove_clock, self.fullmove_clock));
 
         fen
     }
@@ -281,6 +353,8 @@ impl Board {
         self.to_move = undo.to_move;
         self.en_passant = undo.en_passant;
         self.castling_rights = undo.castling_rights;
+        self.halfmove_clock = undo.halfmove_clock;
+        self.fullmove_clock = undo.fullmove_clock;
     }
 
     pub fn make_move(&mut self, mv: Move) -> UndoState {
@@ -289,7 +363,9 @@ impl Board {
             to_move: self.to_move,
             en_passant: self.en_passant,
             castling_rights: self.castling_rights,
-            phase: self.phase
+            phase: self.phase,
+            halfmove_clock: self.halfmove_clock,
+            fullmove_clock: self.fullmove_clock
         };
 
         let dest = mv.to();
@@ -307,10 +383,18 @@ impl Board {
             *self.bitboards.get_unchecked_mut(bb_idx) ^= mv.from() | dest;
         }
 
+        // Assume we add 1 to the half-move clock
+        self.halfmove_clock += 1;
+        // Any pawn moves, captures or promotions will set it back to zero if needed
+        if mv.piece() == PieceType::Pawn {
+            self.halfmove_clock = 0;
+        }
+
         // Disable future en-passant, this is updated if the move was a double pawn push
         self.en_passant = 0;
 
         if mv.is_capture() {
+            self.halfmove_clock = 0;
             if !mv.is_en_passant() {
                 let captured_piece = mv.captured_piece().unwrap();
                 let captured_idx = captured_piece as usize + color_offset;
@@ -332,6 +416,7 @@ impl Board {
             self.bitboards[rook_idx] ^= CASTLING_ROOK_XOR_DEST[c as usize];
         // If it is not a capture or castling, it could be a promotion (but obviously not both)
         } else if mv.is_double_pawn_push() {
+            self.halfmove_clock = 0;
             self.en_passant = match self.to_move {
                 Color::White => south(dest),
                 Color::Black => north(dest)
@@ -340,6 +425,7 @@ impl Board {
 
         // Cannot be put in above branch as captures and promotions are not mutually exclusive
         if let Some(promotion_piece_type) = mv.promotes_to() {
+            self.halfmove_clock = 0;
             let promotion_idx = promotion_piece_type as usize + self_color_offset;
             self.bitboards[promotion_idx] |= dest;
 
@@ -356,6 +442,11 @@ impl Board {
         // 3. For any other square, ANDing 0b11110000 is a no-op that leaves rights intact
         self.castling_rights &= CASTLING_RIGHTS_MASK[mv.from_index() as usize];
         self.castling_rights &= CASTLING_RIGHTS_MASK[mv.to_index() as usize];
+
+        // If it was black who just moved, increment the full-move clock
+        if self.to_move == Color::Black {
+            self.fullmove_clock += 1;
+        }
 
         // switch to_move over to the other player
         self.to_move = !self.to_move;
@@ -390,7 +481,9 @@ impl Board {
             to_move: Color::White, 
             en_passant: 0u64, 
             castling_rights: 0b11110000,
-            phase: 0.0
+            phase: 0.0,
+            halfmove_clock: 0,
+            fullmove_clock: 0
         }
     }
 
@@ -406,8 +499,8 @@ impl Board {
         let side = parts[1];
         let castling = parts[2];
         let ep = parts[3];
-        let halfmove_clock: u32 = parts[4].parse().ok()?;
-        let fullmove_number: u32 = parts[5].parse().ok()?;
+        let halfmove_clock: u16 = parts[4].parse().ok()?;
+        let fullmove_number: u16 = parts[5].parse().ok()?;
 
         if fullmove_number == 0 {
             return None;
@@ -553,6 +646,8 @@ impl Board {
             en_passant,
             castling_rights,
             phase: 0.0,
+            halfmove_clock: halfmove_clock,
+            fullmove_clock: fullmove_number
         };
 
         b.phase = b.get_phase();
